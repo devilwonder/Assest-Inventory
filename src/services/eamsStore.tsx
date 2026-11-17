@@ -1,11 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import {
   createUserWithEmailAndPassword,
+  getRedirectResult,
   onAuthStateChanged,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   updateProfile,
   type User as FirebaseUser,
@@ -64,6 +66,11 @@ import {
   validateLdapConfig,
   validateSmtpConfig,
 } from '../utils/assetRules';
+import {
+  isPopupFallbackError,
+  isStandaloneBrowserWindow,
+  mapFirebaseAuthError,
+} from '../utils/authErrors';
 
 const BOOTSTRAP_ADMIN_EMAIL = 'pandeypratik4@gmail.com';
 const ORG_POLICY_DOC_ID = 'dextra-policy';
@@ -151,6 +158,7 @@ export interface EamsContextValue {
   orgSecrets: OrgSecrets | null;
 
   signInWithGoogle: () => Promise<void>;
+  signInWithGoogleRedirect: () => Promise<void>;
   signInWithOrgEmail: (email: string, password: string) => Promise<void>;
   registerOrgAccount: (email: string, password: string, displayName: string) => Promise<void>;
   sendOrgPasswordReset: (email: string) => Promise<void>;
@@ -484,6 +492,12 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setFbProfile(profile);
         setMode('firebase');
+      } catch (err) {
+        const host = typeof window !== 'undefined' ? window.location.hostname : undefined;
+        setAuthGateError(mapFirebaseAuthError(err, host));
+        setFbProfile(null);
+        setMode('unauthenticated');
+        await signOut(auth).catch(() => {});
       } finally {
         setLoadingData(false);
         setAuthReady(true);
@@ -491,6 +505,14 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     },
     [seedFirestoreIfEmpty]
   );
+
+  // Surface any Google Redirect SSO completion errors on standalone domains (e.g. Vercel)
+  useEffect(() => {
+    getRedirectResult(auth).catch((err) => {
+      const host = typeof window !== 'undefined' ? window.location.hostname : undefined;
+      setAuthGateError(mapFirebaseAuthError(err, host));
+    });
+  }, []);
 
   // Auth state observer
   useEffect(() => {
@@ -650,7 +672,25 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signInWithGoogle = useCallback(async () => {
     setAuthGateError(null);
-    await signInWithPopup(auth, googleProvider);
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err) {
+      if (isPopupFallbackError(err) && isStandaloneBrowserWindow()) {
+        await signInWithRedirect(auth, googleProvider);
+        return;
+      }
+      throw err;
+    }
+  }, []);
+
+  const signInWithGoogleRedirect = useCallback(async () => {
+    setAuthGateError(null);
+    if (!isStandaloneBrowserWindow()) {
+      throw new Error(
+        'Redirect SSO is unavailable inside an embedded iframe. Use Corporate Google SSO popup instead.'
+      );
+    }
+    await signInWithRedirect(auth, googleProvider);
   }, []);
 
   const signInWithOrgEmail = useCallback(async (email: string, password: string) => {
@@ -1753,6 +1793,7 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     orgIntegrations,
     orgSecrets,
     signInWithGoogle,
+    signInWithGoogleRedirect,
     signInWithOrgEmail,
     registerOrgAccount,
     sendOrgPasswordReset,

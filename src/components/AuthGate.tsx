@@ -9,35 +9,14 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useEams } from '../services/eamsStore';
+import { isStandaloneBrowserWindow, mapFirebaseAuthError } from '../utils/authErrors';
 
 type AuthPanelMode = 'signin' | 'register' | 'reset';
-
-function mapFirebaseAuthError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  if (raw.includes('auth/operation-not-allowed')) {
-    return 'Email/Password sign-in is not yet enabled in Firebase Authentication Console. Use Google Workspace SSO or ask your administrator to enable the Email/Password provider in Firebase Console.';
-  }
-  if (raw.includes('auth/invalid-credential') || raw.includes('auth/wrong-password')) {
-    return 'Invalid corporate email or password. Verify your credentials or reset your password.';
-  }
-  if (raw.includes('auth/user-not-found')) {
-    return 'No account found for this email. Use "Activate Account" to register your corporate email.';
-  }
-  if (raw.includes('auth/email-already-in-use')) {
-    return 'This corporate email is already registered. Switch to Sign In or reset your password.';
-  }
-  if (raw.includes('auth/weak-password')) {
-    return 'Password must be at least 6 characters.';
-  }
-  if (raw.includes('auth/popup-closed-by-user')) {
-    return 'Google sign-in window was closed before completing authentication.';
-  }
-  return raw;
-}
 
 export const AuthGate: React.FC = () => {
   const {
     signInWithGoogle,
+    signInWithGoogleRedirect,
     signInWithOrgEmail,
     registerOrgAccount,
     sendOrgPasswordReset,
@@ -59,6 +38,9 @@ export const AuthGate: React.FC = () => {
 
   const displayedError = localError || authGateError || '';
 
+  const currentHost = typeof window !== 'undefined' ? window.location.hostname : undefined;
+  const standaloneWindow = isStandaloneBrowserWindow();
+
   const handleGoogleSignIn = async () => {
     setLocalError('');
     setStatusNotice('');
@@ -67,8 +49,21 @@ export const AuthGate: React.FC = () => {
     try {
       await signInWithGoogle();
     } catch (err) {
-      setLocalError(mapFirebaseAuthError(err));
+      setLocalError(mapFirebaseAuthError(err, currentHost));
     } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleGoogleRedirectSignIn = async () => {
+    setLocalError('');
+    setStatusNotice('');
+    clearAuthGateError();
+    setBusy(true);
+    try {
+      await signInWithGoogleRedirect();
+    } catch (err) {
+      setLocalError(mapFirebaseAuthError(err, currentHost));
       setBusy(false);
     }
   };
@@ -111,7 +106,7 @@ export const AuthGate: React.FC = () => {
         setStatusNotice(`Password reset email sent to ${email.trim()}. Check your inbox.`);
       }
     } catch (err) {
-      setLocalError(mapFirebaseAuthError(err));
+      setLocalError(mapFirebaseAuthError(err, currentHost));
     } finally {
       setBusy(false);
     }
@@ -199,7 +194,7 @@ export const AuthGate: React.FC = () => {
                     try {
                       await refreshAuthVerification();
                     } catch (err) {
-                      setLocalError(mapFirebaseAuthError(err));
+                      setLocalError(mapFirebaseAuthError(err, currentHost));
                     } finally {
                       setBusy(false);
                     }
@@ -219,7 +214,7 @@ export const AuthGate: React.FC = () => {
                         await resendVerificationEmail();
                         setStatusNotice('Verification email resent.');
                       } catch (err) {
-                        setLocalError(mapFirebaseAuthError(err));
+                        setLocalError(mapFirebaseAuthError(err, currentHost));
                       } finally {
                         setBusy(false);
                       }
@@ -262,15 +257,27 @@ export const AuthGate: React.FC = () => {
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                disabled={busy}
-                className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50"
-              >
-                <Lock className="w-4 h-4" />
-                <span>{busy ? 'Connecting...' : 'Sign in with Corporate Google SSO'}</span>
-              </button>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  disabled={busy}
+                  className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50"
+                >
+                  <Lock className="w-4 h-4" />
+                  <span>{busy ? 'Connecting...' : 'Sign in with Corporate Google SSO'}</span>
+                </button>
+                {standaloneWindow && (
+                  <button
+                    type="button"
+                    onClick={handleGoogleRedirectSignIn}
+                    disabled={busy}
+                    className="w-full text-center text-xs font-medium text-slate-500 hover:text-slate-800 py-1 disabled:opacity-50"
+                  >
+                    Popup blocked? Use Redirect SSO
+                  </button>
+                )}
+              </div>
 
               <div className="relative flex items-center">
                 <div className="flex-grow border-t border-slate-200" />
