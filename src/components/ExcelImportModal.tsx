@@ -1,12 +1,25 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Download, FileSpreadsheet, Upload, X } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Columns3,
+  Download,
+  FileSpreadsheet,
+  Upload,
+  X,
+} from 'lucide-react';
 import type { Asset, Employee } from '../types/eams';
 import {
+  ASSET_CSV_COLUMN_MAPPINGS,
+  downloadAssetCsvTemplate,
   downloadAssetImportTemplate,
   downloadEmployeeImportTemplate,
+  matchPredefinedAssetHeaders,
   parseAndValidateAssetRows,
   parseAndValidateEmployeeRows,
-  readExcelFileRows,
+  readSpreadsheetFileWithHeaders,
   type ImportParseResult,
 } from '../utils/excelImport';
 
@@ -38,6 +51,10 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
   const [parseError, setParseError] = useState<string>('');
   const [importing, setImporting] = useState(false);
   const [rowFilter, setRowFilter] = useState<'all' | 'errors'>('all');
+  const [showColumnMapping, setShowColumnMapping] = useState(false);
+  const [detectedHeaders, setDetectedHeaders] = useState<
+    Array<{ uploadedHeader: string; mappedField: string | null; targetLabel: string | null }>
+  >([]);
   const [assetResult, setAssetResult] = useState<ImportParseResult<Omit<Asset, 'id'>> | null>(null);
   const [employeeResult, setEmployeeResult] = useState<ImportParseResult<Omit<Employee, 'id'>> | null>(
     null
@@ -57,6 +74,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
     setFileName('');
     setParseError('');
     setRowFilter('all');
+    setDetectedHeaders([]);
     setAssetResult(null);
     setEmployeeResult(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -82,26 +100,29 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
     setParseError('');
     setFileName(file.name);
     try {
-      const rawRows = await readExcelFileRows(file);
+      const { rows: rawRows, headers } = await readSpreadsheetFileWithHeaders(file);
       if (rawRows.length === 0) {
-        setParseError('The selected spreadsheet has no data rows beneath the header.');
+        setParseError('The selected file has no data rows beneath the header.');
+        setDetectedHeaders([]);
         setAssetResult(null);
         setEmployeeResult(null);
         return;
       }
       if (target === 'assets') {
+        setDetectedHeaders(matchPredefinedAssetHeaders(headers));
         const res = parseAndValidateAssetRows(
           rawRows,
           existingAssets,
           locations[0] || 'San Francisco HQ'
         );
         if (res.rows.length === 0) {
-          setParseError('No non-empty asset rows found in the first worksheet.');
+          setParseError('No non-empty asset rows found in the uploaded file.');
           setAssetResult(null);
           return;
         }
         setAssetResult(res);
       } else {
+        setDetectedHeaders([]);
         const res = parseAndValidateEmployeeRows(
           rawRows,
           existingEmployees,
@@ -116,9 +137,12 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
         setEmployeeResult(res);
       }
     } catch (err) {
-      setParseError(err instanceof Error ? err.message : 'Unable to parse the Excel file.');
+      setParseError(err instanceof Error ? err.message : 'Unable to parse the uploaded file.');
+      setDetectedHeaders([]);
       setAssetResult(null);
       setEmployeeResult(null);
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -142,6 +166,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
   };
 
   const entityPlural = target === 'assets' ? 'Assets' : 'Employees';
+  const matchedHeadersCount = detectedHeaders.filter((h) => h.mappedField !== null).length;
 
   return (
     <div
@@ -154,16 +179,18 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h2 id="excel-import-title" className="text-base font-semibold text-slate-900">
-              Import {entityPlural} from Excel
+              {target === 'assets' ? 'Import Assets (CSV / Excel)' : 'Import Employees from Excel'}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Download the pre-formatted workbook, populate rows, and upload to validate before saving.
+              {target === 'assets'
+                ? 'Upload a CSV or Excel file with pre-defined column mapping to bulk-create legacy inventory entries.'
+                : 'Download the pre-formatted workbook, populate rows, and upload to validate before saving.'}
             </p>
           </div>
           <button
             type="button"
             onClick={handleClose}
-            aria-label="Close Excel import modal"
+            aria-label="Close import modal"
             className="p-1 text-slate-400 hover:text-slate-700 rounded-md"
           >
             <X className="w-4 h-4" />
@@ -179,24 +206,37 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
                   1. Download {entityPlural} Template
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Includes required column headers, sample rows, and a Reference Values tab with valid{' '}
-                  {target === 'assets' ? 'categories, conditions, and locations' : 'departments, statuses, and locations'}.
+                  {target === 'assets'
+                    ? 'Pre-formatted headers & sample rows for fast legacy asset onboarding.'
+                    : 'Includes required column headers, sample rows, and valid departments, statuses, and locations.'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleDownloadTemplate}
-                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-800 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 whitespace-nowrap"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Download Template (.xlsx)
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {target === 'assets' && (
+                  <button
+                    type="button"
+                    onClick={() => downloadAssetCsvTemplate(locations)}
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-800 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 whitespace-nowrap"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    CSV Template (.csv)
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleDownloadTemplate}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-800 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 whitespace-nowrap"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  {target === 'assets' ? 'Excel (.xlsx)' : 'Download Template (.xlsx)'}
+                </button>
+              </div>
             </div>
 
             <div className="p-4 border border-slate-200 rounded-xl bg-white flex flex-col justify-between gap-3">
               <div className="space-y-1">
                 <div className="text-xs font-semibold text-slate-900">
-                  2. Upload Spreadsheet (.xlsx, .xls, .csv)
+                  2. Upload {target === 'assets' ? 'CSV or Excel File (.csv, .xlsx)' : 'Spreadsheet (.xlsx, .xls, .csv)'}
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
                   {fileName ? (
@@ -211,18 +251,100 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
                 className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 cursor-pointer whitespace-nowrap"
               >
                 <Upload className="w-3.5 h-3.5" />
-                <span>{fileName ? 'Choose Different File' : 'Select Excel / CSV File'}</span>
+                <span>
+                  {fileName
+                    ? 'Choose Different File'
+                    : target === 'assets'
+                      ? 'Select CSV / Excel File'
+                      : 'Select Excel / CSV File'}
+                </span>
                 <input
                   ref={fileInputRef}
                   id="excel-upload-input"
                   type="file"
-                  accept=".xlsx,.xls,.csv"
+                  accept=".csv,.xlsx,.xls,text/csv"
                   onChange={handleFileChange}
                   className="hidden"
                 />
               </label>
             </div>
           </div>
+
+          {/* Pre-defined Column Mapping Guide & Detection Summary */}
+          {target === 'assets' && (
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowColumnMapping((v) => !v)}
+                aria-expanded={showColumnMapping}
+                className="w-full px-4 py-2.5 bg-slate-50 hover:bg-slate-100/80 flex items-center justify-between text-xs transition-colors"
+              >
+                <span className="inline-flex items-center gap-2 font-medium text-slate-800">
+                  <Columns3 className="w-3.5 h-3.5 text-slate-500" />
+                  Pre-defined CSV Column Mapping
+                  {detectedHeaders.length > 0 && (
+                    <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      {matchedHeadersCount}/{detectedHeaders.length} columns matched
+                    </span>
+                  )}
+                </span>
+                <span className="inline-flex items-center gap-1 text-slate-500">
+                  {showColumnMapping ? 'Hide' : 'View Schema'}
+                  {showColumnMapping ? (
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  )}
+                </span>
+              </button>
+
+              {detectedHeaders.length > 0 && (
+                <div className="px-4 py-2.5 bg-white border-t border-slate-200 flex flex-wrap gap-1.5">
+                  {detectedHeaders.map((h, i) => (
+                    <span
+                      key={`${h.uploadedHeader}-${i}`}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] border ${
+                        h.mappedField
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                          : 'bg-slate-50 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      <span className="font-mono">{h.uploadedHeader}</span>
+                      <span>→</span>
+                      <span>{h.targetLabel || 'Ignored'}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {showColumnMapping && (
+                <div className="border-t border-slate-200 max-h-56 overflow-y-auto bg-white">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">Target Column</th>
+                        <th className="px-3 py-2 font-medium">Accepted CSV / Legacy Headers</th>
+                        <th className="px-3 py-2 font-medium">Rule</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {ASSET_CSV_COLUMN_MAPPINGS.map((col) => (
+                        <tr key={col.field}>
+                          <td className="px-3 py-2 font-medium text-slate-900 whitespace-nowrap">
+                            {col.csvHeader}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-[11px] text-slate-600">
+                            {col.aliases.join(', ')}
+                          </td>
+                          <td className="px-3 py-2 text-slate-500">{col.notes}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
 
           {parseError && (
             <div className="p-3 text-xs text-rose-800 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-2">

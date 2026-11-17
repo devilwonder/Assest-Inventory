@@ -24,10 +24,10 @@ function EamsShell() {
     authReady,
     loadingData,
     currentUser,
+    orgPolicy,
     requests,
     employees,
     maintenanceRecords,
-    switchDemoRole,
     logout,
   } = useEams();
 
@@ -73,7 +73,7 @@ function EamsShell() {
   if (mode === 'unauthenticated' && !authReady) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="text-sm text-slate-500">Initializing AssetLedger workspace...</div>
+        <div className="text-sm text-slate-500">Initializing Dextra AssetLedger workspace...</div>
       </div>
     );
   }
@@ -106,6 +106,7 @@ function EamsShell() {
           if (tab === 'inventory') setInventoryStatusFilter('All');
           setActiveTab(tab);
         }}
+        orgName={orgPolicy.orgName}
         role={currentUser.role}
         pendingRequestsCount={pendingRequestsCount}
         pendingOffboardingCount={pendingOffboardingCount}
@@ -117,10 +118,9 @@ function EamsShell() {
       <div className="flex-1 flex flex-col min-w-0">
         <TopHeader
           activeTab={activeTab}
-          mode={mode}
+          orgName={orgPolicy.orgName}
           currentUser={currentUser}
           onOpenMobileNav={() => setMobileNavOpen(true)}
-          onSwitchDemoRole={switchDemoRole}
           onLogout={logout}
           onQuickAction={handleQuickAction}
         />

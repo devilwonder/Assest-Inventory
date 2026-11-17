@@ -1,6 +1,6 @@
 import React from 'react';
 import { LogOut, Menu, Plus } from 'lucide-react';
-import { USER_ROLES, type AppUser, type NavTab, type UserRole } from '../types/eams';
+import type { AppUser, NavTab } from '../types/eams';
 import { hasPermission } from '../utils/assetRules';
 
 const TAB_TITLES: Record<NavTab, string> = {
@@ -18,20 +18,18 @@ const TAB_TITLES: Record<NavTab, string> = {
 
 interface TopHeaderProps {
   activeTab: NavTab;
-  mode: 'demo' | 'firebase';
+  orgName: string;
   currentUser: AppUser;
   onOpenMobileNav: () => void;
-  onSwitchDemoRole: (role: UserRole) => void;
   onLogout: () => void;
   onQuickAction: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
   activeTab,
-  mode,
+  orgName,
   currentUser,
   onOpenMobileNav,
-  onSwitchDemoRole,
   onLogout,
   onQuickAction,
 }) => {
@@ -49,7 +47,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           <Menu className="w-5 h-5" />
         </button>
         <div className="flex items-center gap-2 text-sm min-w-0">
-          <span className="text-slate-400 hidden sm:inline whitespace-nowrap">AssetLedger</span>
+          <span className="text-slate-500 font-medium hidden sm:inline whitespace-nowrap">
+            {orgName || 'Dextra'} · AssetLedger
+          </span>
           <span className="text-slate-300 hidden sm:inline" aria-hidden="true">/</span>
           <h1 className="text-sm sm:text-base font-semibold text-slate-900 truncate">
             {TAB_TITLES[activeTab]}
@@ -58,26 +58,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-        {mode === 'demo' && (
-          <div className="hidden md:flex items-center gap-2">
-            <label htmlFor="demo-role-switcher" className="text-xs text-slate-500 whitespace-nowrap">
-              Preview Role:
-            </label>
-            <select
-              id="demo-role-switcher"
-              value={currentUser.role}
-              onChange={(e) => onSwitchDemoRole(e.target.value as UserRole)}
-              className="text-xs font-medium text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-600"
-            >
-              {USER_ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
         <button
           type="button"
           onClick={onQuickAction}

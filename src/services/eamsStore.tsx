@@ -1,8 +1,13 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import {
+  createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  updateProfile,
   type User as FirebaseUser,
 } from 'firebase/auth';
 import {
@@ -21,15 +26,8 @@ import {
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { auth, db, googleProvider, handleFirestoreError, OperationType, storage } from '../firebase';
 import {
-  SEED_ASSETS,
-  SEED_ASSIGNMENTS,
-  SEED_AUDIT_LOGS,
   SEED_DEPARTMENTS,
-  SEED_EMPLOYEES,
   SEED_LOCATIONS,
-  SEED_MAINTENANCE,
-  SEED_REQUESTS,
-  SEED_RETURNS,
 } from '../data/seedData';
 import type {
   AppUser,
@@ -45,6 +43,9 @@ import type {
   EmploymentStatus,
   Location,
   MaintenanceRecord,
+  OrgIntegrations,
+  OrgPolicy,
+  OrgSecrets,
   RepairStatus,
   RequestStatus,
   RequestUrgency,
@@ -58,123 +59,82 @@ import {
   generateNextAssetCode,
   generateNextEmployeeCode,
   generateReceiptNumber,
+  isAllowedOrgEmail,
   validateAssetUniqueness,
+  validateLdapConfig,
+  validateSmtpConfig,
 } from '../utils/assetRules';
 
-const DEMO_STORAGE_KEY = 'assetledger_demo_state_v1';
 const BOOTSTRAP_ADMIN_EMAIL = 'pandeypratik4@gmail.com';
+const ORG_POLICY_DOC_ID = 'dextra-policy';
+const ORG_INTEGRATIONS_DOC_ID = 'dextra-integrations';
+const ORG_SECRETS_DOC_ID = 'dextra-secrets';
 
-interface DemoSnapshot {
-  employees: Employee[];
-  assets: Asset[];
-  assignments: AssetAssignment[];
-  returns: AssetReturn[];
-  requests: AssetRequest[];
-  maintenanceRecords: MaintenanceRecord[];
-  auditLogs: AuditLog[];
-  departments: Department[];
-  locations: Location[];
-  users: AppUser[];
-  activeDemoRole: UserRole;
-}
+export const DEFAULT_ORG_POLICY: OrgPolicy = {
+  id: ORG_POLICY_DOC_ID,
+  orgName: 'Dextra',
+  orgSlug: 'dextra',
+  primaryDomain: 'dextra.com',
+  allowedDomains: ['dextra.com'],
+  supportEmail: 'it-support@dextra.com',
+  enforceDomainRestriction: false,
+  enableGoogleSso: true,
+  enableOrgEmailLogin: true,
+  enableLdapLogin: true,
+  defaultOnboardingRole: 'Employee',
+};
 
-function createInitialDemoSnapshot(): DemoSnapshot {
-  const demoUsers: AppUser[] = [
-    {
-      uid: 'demo-super-admin',
-      email: 'daniel.chen@assetledger.io',
-      displayName: 'Daniel Chen',
-      photoUrl: '/src/assets/images/avatar_admin_director_1794909090844.jpg',
-      role: 'Super Admin',
-      employeeId: 'emp-1001',
-      department: 'IT & Security',
-      createdAt: '2025-01-10T09:00:00Z',
-    },
-    {
-      uid: 'emp-1010',
-      email: 'aisha.patel@assetledger.io',
-      displayName: 'Aisha Patel',
-      role: 'IT Admin',
-      employeeId: 'emp-1010',
-      department: 'IT & Security',
-      createdAt: '2025-01-10T09:00:00Z',
-    },
-    {
-      uid: 'emp-1004',
-      email: 'priya.nair@assetledger.io',
-      displayName: 'Priya Nair',
-      role: 'HR Admin',
-      employeeId: 'emp-1004',
-      department: 'Human Resources',
-      createdAt: '2025-01-10T09:00:00Z',
-    },
-    {
-      uid: 'emp-1002',
-      email: 'marcus.vance@assetledger.io',
-      displayName: 'Marcus Vance',
-      role: 'Department Manager',
-      employeeId: 'emp-1002',
-      department: 'Engineering',
-      createdAt: '2025-01-10T09:00:00Z',
-    },
-    {
-      uid: 'emp-1008',
-      email: 'hannah.brooks@assetledger.io',
-      displayName: 'Hannah Brooks',
-      role: 'Employee',
-      employeeId: 'emp-1008',
-      department: 'Engineering',
-      createdAt: '2025-01-10T09:00:00Z',
-    },
-  ];
-  return {
-    employees: SEED_EMPLOYEES,
-    assets: SEED_ASSETS,
-    assignments: SEED_ASSIGNMENTS,
-    returns: SEED_RETURNS,
-    requests: SEED_REQUESTS,
-    maintenanceRecords: SEED_MAINTENANCE,
-    auditLogs: SEED_AUDIT_LOGS,
-    departments: SEED_DEPARTMENTS,
-    locations: SEED_LOCATIONS,
-    users: demoUsers,
-    activeDemoRole: 'Super Admin',
-  };
-}
-
-function loadDemoSnapshot(): DemoSnapshot {
-  try {
-    const raw = localStorage.getItem(DEMO_STORAGE_KEY);
-    if (!raw) return createInitialDemoSnapshot();
-    const parsed = JSON.parse(raw) as Partial<DemoSnapshot>;
-    const base = createInitialDemoSnapshot();
-    return {
-      employees: parsed.employees ?? base.employees,
-      assets: parsed.assets ?? base.assets,
-      assignments: parsed.assignments ?? base.assignments,
-      returns: parsed.returns ?? base.returns,
-      requests: parsed.requests ?? base.requests,
-      maintenanceRecords: parsed.maintenanceRecords ?? base.maintenanceRecords,
-      auditLogs: parsed.auditLogs ?? base.auditLogs,
-      departments: parsed.departments ?? base.departments,
-      locations: parsed.locations ?? base.locations,
-      users: parsed.users ?? base.users,
-      activeDemoRole: parsed.activeDemoRole ?? 'Super Admin',
-    };
-  } catch {
-    return createInitialDemoSnapshot();
-  }
-}
+export const DEFAULT_ORG_INTEGRATIONS: OrgIntegrations = {
+  id: ORG_INTEGRATIONS_DOC_ID,
+  smtpEnabled: false,
+  smtpHost: 'smtp.office365.com',
+  smtpPort: 587,
+  smtpSecurity: 'STARTTLS',
+  smtpFromName: 'Dextra IT Asset Management',
+  smtpFromEmail: 'assets-noreply@dextra.com',
+  smtpUsername: 'assets-noreply@dextra.com',
+  smtpHasPassword: false,
+  notifyOnAssignment: true,
+  notifyOnReturn: true,
+  notifyOnWarrantyExpiry: true,
+  notifyOnOffboarding: true,
+  ldapEnabled: false,
+  ldapServerUrl: 'ldaps://ldap.dextra.com',
+  ldapPort: 636,
+  ldapUseTls: true,
+  ldapBaseDn: 'dc=dextra,dc=com',
+  ldapBindDn: 'cn=svc-assetledger,ou=ServiceAccounts,dc=dextra,dc=com',
+  ldapHasBindPassword: false,
+  ldapUserSearchFilter: '(&(objectClass=person)(mail={email}))',
+  ldapGroupSearchFilter: '(&(objectClass=groupOfNames)(member={dn}))',
+  ldapAdminGroupDn: 'cn=AssetLedger-SuperAdmins,ou=Groups,dc=dextra,dc=com',
+  ldapItGroupDn: 'cn=AssetLedger-IT-Admins,ou=Groups,dc=dextra,dc=com',
+  ldapHrGroupDn: 'cn=AssetLedger-HR-Admins,ou=Groups,dc=dextra,dc=com',
+  ldapSyncIntervalHours: 6,
+};
 
 function makeId(prefix: string): string {
   const rand = Math.random().toString(36).slice(2, 8);
   return `${prefix}-${Date.now()}-${rand}`;
 }
 
+export interface ConnectionTestResult {
+  ok: boolean;
+  latencyMs?: number;
+  banner?: string;
+  tlsActive?: boolean;
+  testEmailSent?: boolean;
+  summary?: string;
+  error?: string;
+}
+
 export interface EamsContextValue {
-  mode: 'unauthenticated' | 'demo' | 'firebase';
+  mode: 'unauthenticated' | 'firebase';
   authReady: boolean;
   loadingData: boolean;
+  pendingVerificationEmail: string | null;
+  authGateError: string | null;
+  clearAuthGateError: () => void;
   currentUser: AppUser | null;
   employees: Employee[];
   assets: Asset[];
@@ -186,12 +146,17 @@ export interface EamsContextValue {
   departments: Department[];
   locations: Location[];
   users: AppUser[];
+  orgPolicy: OrgPolicy;
+  orgIntegrations: OrgIntegrations;
+  orgSecrets: OrgSecrets | null;
 
   signInWithGoogle: () => Promise<void>;
-  enterDemoMode: (role?: UserRole) => void;
-  switchDemoRole: (role: UserRole) => void;
+  signInWithOrgEmail: (email: string, password: string) => Promise<void>;
+  registerOrgAccount: (email: string, password: string, displayName: string) => Promise<void>;
+  sendOrgPasswordReset: (email: string) => Promise<void>;
+  resendVerificationEmail: () => Promise<void>;
+  refreshAuthVerification: () => Promise<void>;
   logout: () => Promise<void>;
-  resetDemoData: () => void;
 
   // Employee actions
   saveEmployee: (emp: Omit<Employee, 'id' | 'employeeCode'> & { id?: string; employeeCode?: string }) => Promise<Employee>;
@@ -261,115 +226,287 @@ export interface EamsContextValue {
     nextAssetStatus?: AssetStatus;
   }) => Promise<void>;
 
-  // Settings actions
+  // Settings & Organization Configuration actions
   addDepartment: (name: string, headName: string, costCenter: string) => Promise<void>;
   addLocation: (name: string, city: string, country: string) => Promise<void>;
   updateUserRole: (uid: string, role: UserRole) => Promise<void>;
+  saveOrgPolicy: (policy: Omit<OrgPolicy, 'id'>) => Promise<void>;
+  saveOrgIntegrations: (
+    integrations: Omit<OrgIntegrations, 'id'>,
+    secretsUpdate?: { smtpPassword?: string; ldapBindPassword?: string }
+  ) => Promise<void>;
+  testSmtpConnection: (params: {
+    host: string;
+    port: number;
+    security: OrgIntegrations['smtpSecurity'];
+    username: string;
+    password?: string;
+    fromEmail: string;
+    fromName: string;
+    testRecipient?: string;
+  }) => Promise<ConnectionTestResult>;
+  testLdapConnection: (params: {
+    serverUrl: string;
+    port: number;
+    useTls: boolean;
+    bindDn: string;
+    bindPassword?: string;
+  }) => Promise<ConnectionTestResult>;
 }
 
 const EamsContext = createContext<EamsContextValue | null>(null);
 
 export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [mode, setMode] = useState<'unauthenticated' | 'demo' | 'firebase'>(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('autostart') === '1') return 'demo';
-    if (localStorage.getItem('assetledger_mode') === 'demo') return 'demo';
-    return 'unauthenticated';
-  });
+  const [mode, setMode] = useState<'unauthenticated' | 'firebase'>('unauthenticated');
   const [authReady, setAuthReady] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
+  const [authGateError, setAuthGateError] = useState<string | null>(null);
   const [fbUser, setFbUser] = useState<FirebaseUser | null>(null);
   const [fbProfile, setFbProfile] = useState<AppUser | null>(null);
 
-  const [demoState, setDemoState] = useState<DemoSnapshot>(() => loadDemoSnapshot());
-
   // Live Firestore collections
-  const [fbEmployees, setFbEmployees] = useState<Employee[]>([]);
-  const [fbAssets, setFbAssets] = useState<Asset[]>([]);
-  const [fbAssignments, setFbAssignments] = useState<AssetAssignment[]>([]);
-  const [fbReturns, setFbReturns] = useState<AssetReturn[]>([]);
-  const [fbRequests, setFbRequests] = useState<AssetRequest[]>([]);
-  const [fbMaintenance, setFbMaintenance] = useState<MaintenanceRecord[]>([]);
-  const [fbAuditLogs, setFbAuditLogs] = useState<AuditLog[]>([]);
-  const [fbDepartments, setFbDepartments] = useState<Department[]>([]);
-  const [fbLocations, setFbLocations] = useState<Location[]>([]);
-  const [fbUsers, setFbUsers] = useState<AppUser[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [assignments, setAssignments] = useState<AssetAssignment[]>([]);
+  const [returns, setReturns] = useState<AssetReturn[]>([]);
+  const [requests, setRequests] = useState<AssetRequest[]>([]);
+  const [maintenanceRecords, setMaintenanceRecords] = useState<MaintenanceRecord[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [orgPolicy, setOrgPolicy] = useState<OrgPolicy>(DEFAULT_ORG_POLICY);
+  const [orgIntegrations, setOrgIntegrations] = useState<OrgIntegrations>(DEFAULT_ORG_INTEGRATIONS);
+  const [orgSecrets, setOrgSecrets] = useState<OrgSecrets | null>(null);
 
-  // Persist demo snapshot cleanly
+  // Clear any legacy demo storage keys on startup
   useEffect(() => {
-    if (mode === 'demo') {
+    try {
+      localStorage.removeItem('assetledger_demo_state_v1');
+      if (localStorage.getItem('assetledger_mode') === 'demo') {
+        localStorage.removeItem('assetledger_mode');
+      }
+    } catch {
+      // Ignore storage restrictions
+    }
+  }, []);
+
+  const clearAuthGateError = useCallback(() => setAuthGateError(null), []);
+
+  // Seed baseline organization structure & policies when Super Admin first initializes Dextra workspace
+  const seedFirestoreIfEmpty = useCallback(async (uid: string, displayName: string) => {
+    const now = new Date().toISOString();
+    const safeDisplayName = displayName.trim().slice(0, 120) || 'Super Admin';
+
+    let deptsSnap;
+    try {
+      deptsSnap = await getDocs(collection(db, 'departments'));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, 'departments');
+    }
+    if (deptsSnap.empty) {
       try {
-        localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(demoState));
-      } catch {
-        // Ignore quota errors
+        const batch = writeBatch(db);
+        for (const d of SEED_DEPARTMENTS) batch.set(doc(db, 'departments', d.id), d);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, 'departments');
       }
     }
-  }, [demoState, mode]);
 
-  // Seed Firestore if empty when an admin logs in
-  const seedFirestoreIfEmpty = useCallback(async () => {
-    const assetsSnap = await getDocs(collection(db, 'assets'));
-    if (!assetsSnap.empty) return;
+    let locsSnap;
+    try {
+      locsSnap = await getDocs(collection(db, 'locations'));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, 'locations');
+    }
+    if (locsSnap.empty) {
+      try {
+        const batch = writeBatch(db);
+        for (const l of SEED_LOCATIONS) batch.set(doc(db, 'locations', l.id), l);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, 'locations');
+      }
+    }
 
-    const batch = writeBatch(db);
-    for (const d of SEED_DEPARTMENTS) batch.set(doc(db, 'departments', d.id), d);
-    for (const l of SEED_LOCATIONS) batch.set(doc(db, 'locations', l.id), l);
-    for (const e of SEED_EMPLOYEES) batch.set(doc(db, 'employees', e.id), e);
-    for (const a of SEED_ASSETS) batch.set(doc(db, 'assets', a.id), a);
-    for (const asg of SEED_ASSIGNMENTS) batch.set(doc(db, 'assetAssignments', asg.id), asg);
-    for (const ret of SEED_RETURNS) batch.set(doc(db, 'assetReturns', ret.id), ret);
-    for (const mnt of SEED_MAINTENANCE) batch.set(doc(db, 'maintenanceRecords', mnt.id), mnt);
-    for (const req of SEED_REQUESTS) batch.set(doc(db, 'assetRequests', req.id), req);
-    for (const log of SEED_AUDIT_LOGS) batch.set(doc(db, 'auditLogs', log.id), log);
-    await batch.commit();
+    const policyRef = doc(db, 'orgPolicy', ORG_POLICY_DOC_ID);
+    let policySnap;
+    try {
+      policySnap = await getDoc(policyRef);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, `orgPolicy/${ORG_POLICY_DOC_ID}`);
+    }
+    if (!policySnap.exists()) {
+      try {
+        const bootstrapLog: AuditLog = {
+          id: makeId('log'),
+          actorUid: uid,
+          actorName: safeDisplayName,
+          actorRole: 'Super Admin',
+          action: 'ORG_WORKSPACE_INITIALIZED',
+          entityType: 'OrgPolicy',
+          entityId: ORG_POLICY_DOC_ID,
+          summary: 'Initialized Dextra AssetLedger production workspace and security policies',
+          timestamp: now,
+        };
+        const batch = writeBatch(db);
+        batch.set(policyRef, {
+          ...DEFAULT_ORG_POLICY,
+          updatedByUid: uid,
+          updatedByName: safeDisplayName,
+          updatedAt: now,
+        });
+        batch.set(doc(db, 'auditLogs', bootstrapLog.id), bootstrapLog);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `orgPolicy/${ORG_POLICY_DOC_ID}`);
+      }
+    }
+
+    const integrationsRef = doc(db, 'orgIntegrations', ORG_INTEGRATIONS_DOC_ID);
+    let integrationsSnap;
+    try {
+      integrationsSnap = await getDoc(integrationsRef);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, `orgIntegrations/${ORG_INTEGRATIONS_DOC_ID}`);
+    }
+    if (!integrationsSnap.exists()) {
+      try {
+        await setDoc(integrationsRef, {
+          ...DEFAULT_ORG_INTEGRATIONS,
+          updatedByUid: uid,
+          updatedByName: safeDisplayName,
+          updatedAt: now,
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `orgIntegrations/${ORG_INTEGRATIONS_DOC_ID}`);
+      }
+    }
   }, []);
+
+  const hydrateAuthenticatedUser = useCallback(
+    async (user: FirebaseUser) => {
+      if (!user.emailVerified) {
+        setPendingVerificationEmail(user.email || '');
+        setFbProfile(null);
+        setMode('unauthenticated');
+        setAuthReady(true);
+        return;
+      }
+
+      setPendingVerificationEmail(null);
+      setLoadingData(true);
+
+      try {
+        // Check organization domain restriction policy if configured
+        let activePolicy = DEFAULT_ORG_POLICY;
+        try {
+          const policySnap = await getDoc(doc(db, 'orgPolicy', ORG_POLICY_DOC_ID));
+          if (policySnap.exists()) {
+            activePolicy = policySnap.data() as OrgPolicy;
+            setOrgPolicy(activePolicy);
+          }
+        } catch {
+          // Policy doc may not exist before first Super Admin login
+        }
+
+        const userRef = doc(db, 'users', user.uid);
+        let snap;
+        try {
+          snap = await getDoc(userRef);
+        } catch (err) {
+          handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
+        }
+
+        const now = new Date().toISOString();
+        let profile: AppUser;
+
+        if (snap.exists()) {
+          profile = snap.data() as AppUser;
+        } else {
+          const isBootstrap = user.email?.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
+          const rawName = user.displayName || (user.email ? user.email.split('@')[0] : 'Workspace User');
+          profile = {
+            uid: user.uid,
+            email: (user.email || '').slice(0, 200),
+            displayName: rawName.trim().slice(0, 120) || 'Workspace User',
+            photoUrl: (user.photoURL || '').slice(0, 500),
+            role: isBootstrap ? 'Super Admin' : 'Employee',
+            department: isBootstrap ? 'IT & Security' : 'Engineering',
+            createdAt: now,
+            updatedAt: now,
+          };
+
+          const domainCheck = isAllowedOrgEmail(
+            profile.email,
+            activePolicy.allowedDomains,
+            activePolicy.enforceDomainRestriction,
+            [BOOTSTRAP_ADMIN_EMAIL]
+          );
+          if (!domainCheck.allowed) {
+            await signOut(auth);
+            setAuthGateError(
+              `${domainCheck.reason} Contact ${activePolicy.supportEmail || 'IT Administration'}.`
+            );
+            setMode('unauthenticated');
+            return;
+          }
+
+          try {
+            await setDoc(userRef, profile);
+          } catch (err) {
+            handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}`);
+          }
+        }
+
+        if (profile.role !== 'Super Admin') {
+          const domainCheck = isAllowedOrgEmail(
+            profile.email,
+            activePolicy.allowedDomains,
+            activePolicy.enforceDomainRestriction,
+            [BOOTSTRAP_ADMIN_EMAIL]
+          );
+          if (!domainCheck.allowed) {
+            await signOut(auth);
+            setAuthGateError(
+              `${domainCheck.reason} Contact ${activePolicy.supportEmail || 'IT Administration'}.`
+            );
+            setMode('unauthenticated');
+            return;
+          }
+        }
+
+        if (profile.role === 'Super Admin') {
+          await seedFirestoreIfEmpty(profile.uid, profile.displayName);
+        }
+
+        setFbProfile(profile);
+        setMode('firebase');
+      } finally {
+        setLoadingData(false);
+        setAuthReady(true);
+      }
+    },
+    [seedFirestoreIfEmpty]
+  );
 
   // Auth state observer
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFbUser(user);
       if (user) {
-        try {
-          setLoadingData(true);
-          const userRef = doc(db, 'users', user.uid);
-          const snap = await getDoc(userRef);
-          const now = new Date().toISOString();
-          let profile: AppUser;
-          if (snap.exists()) {
-            profile = snap.data() as AppUser;
-          } else {
-            const isBootstrap = user.email === BOOTSTRAP_ADMIN_EMAIL;
-            profile = {
-              uid: user.uid,
-              email: user.email || '',
-              displayName: user.displayName || 'Workspace User',
-              photoUrl: user.photoURL || '',
-              role: isBootstrap ? 'Super Admin' : 'Employee',
-              department: isBootstrap ? 'IT & Security' : 'Engineering',
-              createdAt: now,
-              updatedAt: now,
-            };
-            await setDoc(userRef, profile);
-          }
-          setFbProfile(profile);
-          setMode('firebase');
-          localStorage.setItem('assetledger_mode', 'firebase');
-          if (profile.role === 'Super Admin' || profile.role === 'IT Admin') {
-            await seedFirestoreIfEmpty();
-          }
-        } catch (err) {
-          handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
-        } finally {
-          setLoadingData(false);
-          setAuthReady(true);
-        }
+        await hydrateAuthenticatedUser(user);
       } else {
         setFbProfile(null);
+        setPendingVerificationEmail(null);
+        setMode('unauthenticated');
         setAuthReady(true);
       }
     });
     return () => unsub();
-  }, [seedFirestoreIfEmpty]);
+  }, [hydrateAuthenticatedUser]);
 
   // Firestore real-time subscriptions when signed in
   useEffect(() => {
@@ -384,22 +521,32 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     unsubs.push(
       onSnapshot(
+        doc(db, 'orgPolicy', ORG_POLICY_DOC_ID),
+        (snap) => {
+          if (snap.exists()) setOrgPolicy(snap.data() as OrgPolicy);
+        },
+        (err) => handleFirestoreError(err, OperationType.GET, `orgPolicy/${ORG_POLICY_DOC_ID}`)
+      )
+    );
+
+    unsubs.push(
+      onSnapshot(
         collection(db, 'assets'),
-        (snap) => setFbAssets(snap.docs.map((d) => d.data() as Asset)),
+        (snap) => setAssets(snap.docs.map((d) => d.data() as Asset)),
         (err) => handleFirestoreError(err, OperationType.LIST, 'assets')
       )
     );
     unsubs.push(
       onSnapshot(
         collection(db, 'departments'),
-        (snap) => setFbDepartments(snap.docs.map((d) => d.data() as Department)),
+        (snap) => setDepartments(snap.docs.map((d) => d.data() as Department)),
         (err) => handleFirestoreError(err, OperationType.LIST, 'departments')
       )
     );
     unsubs.push(
       onSnapshot(
         collection(db, 'locations'),
-        (snap) => setFbLocations(snap.docs.map((d) => d.data() as Location)),
+        (snap) => setLocations(snap.docs.map((d) => d.data() as Location)),
         (err) => handleFirestoreError(err, OperationType.LIST, 'locations')
       )
     );
@@ -410,7 +557,7 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     unsubs.push(
       onSnapshot(
         empQuery,
-        (snap) => setFbEmployees(snap.docs.map((d) => d.data() as Employee)),
+        (snap) => setEmployees(snap.docs.map((d) => d.data() as Employee)),
         (err) => handleFirestoreError(err, OperationType.LIST, 'employees')
       )
     );
@@ -421,7 +568,7 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     unsubs.push(
       onSnapshot(
         asgQuery,
-        (snap) => setFbAssignments(snap.docs.map((d) => d.data() as AssetAssignment)),
+        (snap) => setAssignments(snap.docs.map((d) => d.data() as AssetAssignment)),
         (err) => handleFirestoreError(err, OperationType.LIST, 'assetAssignments')
       )
     );
@@ -432,7 +579,7 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     unsubs.push(
       onSnapshot(
         reqQuery,
-        (snap) => setFbRequests(snap.docs.map((d) => d.data() as AssetRequest)),
+        (snap) => setRequests(snap.docs.map((d) => d.data() as AssetRequest)),
         (err) => handleFirestoreError(err, OperationType.LIST, 'assetRequests')
       )
     );
@@ -441,14 +588,14 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubs.push(
         onSnapshot(
           collection(db, 'assetReturns'),
-          (snap) => setFbReturns(snap.docs.map((d) => d.data() as AssetReturn)),
+          (snap) => setReturns(snap.docs.map((d) => d.data() as AssetReturn)),
           (err) => handleFirestoreError(err, OperationType.LIST, 'assetReturns')
         )
       );
       unsubs.push(
         onSnapshot(
           collection(db, 'maintenanceRecords'),
-          (snap) => setFbMaintenance(snap.docs.map((d) => d.data() as MaintenanceRecord)),
+          (snap) => setMaintenanceRecords(snap.docs.map((d) => d.data() as MaintenanceRecord)),
           (err) => handleFirestoreError(err, OperationType.LIST, 'maintenanceRecords')
         )
       );
@@ -459,7 +606,7 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         onSnapshot(
           collection(db, 'auditLogs'),
           (snap) =>
-            setFbAuditLogs(
+            setAuditLogs(
               snap.docs
                 .map((d) => d.data() as AuditLog)
                 .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
@@ -473,8 +620,27 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubs.push(
         onSnapshot(
           collection(db, 'users'),
-          (snap) => setFbUsers(snap.docs.map((d) => d.data() as AppUser)),
+          (snap) => setUsers(snap.docs.map((d) => d.data() as AppUser)),
           (err) => handleFirestoreError(err, OperationType.LIST, 'users')
+        )
+      );
+      unsubs.push(
+        onSnapshot(
+          doc(db, 'orgIntegrations', ORG_INTEGRATIONS_DOC_ID),
+          (snap) => {
+            if (snap.exists()) setOrgIntegrations(snap.data() as OrgIntegrations);
+          },
+          (err) =>
+            handleFirestoreError(err, OperationType.GET, `orgIntegrations/${ORG_INTEGRATIONS_DOC_ID}`)
+        )
+      );
+      unsubs.push(
+        onSnapshot(
+          doc(db, 'orgSecrets', ORG_SECRETS_DOC_ID),
+          (snap) => {
+            if (snap.exists()) setOrgSecrets(snap.data() as OrgSecrets);
+          },
+          (err) => handleFirestoreError(err, OperationType.GET, `orgSecrets/${ORG_SECRETS_DOC_ID}`)
         )
       );
     }
@@ -482,67 +648,73 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubs.forEach((u) => u());
   }, [mode, fbUser, fbProfile]);
 
-  const currentUser = useMemo<AppUser | null>(() => {
-    if (mode === 'firebase') return fbProfile;
-    if (mode === 'demo') {
-      const matched = demoState.users.find((u) => u.role === demoState.activeDemoRole);
-      return matched || demoState.users[0];
-    }
-    return null;
-  }, [mode, fbProfile, demoState]);
-
-  const employees = mode === 'firebase' ? fbEmployees : demoState.employees;
-  const assets = mode === 'firebase' ? fbAssets : demoState.assets;
-  const assignments = mode === 'firebase' ? fbAssignments : demoState.assignments;
-  const returns = mode === 'firebase' ? fbReturns : demoState.returns;
-  const requests = mode === 'firebase' ? fbRequests : demoState.requests;
-  const maintenanceRecords = mode === 'firebase' ? fbMaintenance : demoState.maintenanceRecords;
-  const auditLogs = mode === 'firebase' ? fbAuditLogs : demoState.auditLogs;
-  const departments = mode === 'firebase' ? fbDepartments : demoState.departments;
-  const locations = mode === 'firebase' ? fbLocations : demoState.locations;
-  const users = mode === 'firebase' ? fbUsers : demoState.users;
-
   const signInWithGoogle = useCallback(async () => {
+    setAuthGateError(null);
     await signInWithPopup(auth, googleProvider);
   }, []);
 
-  const enterDemoMode = useCallback((role: UserRole = 'Super Admin') => {
-    localStorage.setItem('assetledger_mode', 'demo');
-    setDemoState((prev) => ({ ...prev, activeDemoRole: role }));
-    setMode('demo');
+  const signInWithOrgEmail = useCallback(async (email: string, password: string) => {
+    setAuthGateError(null);
+    const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+    if (!cred.user.emailVerified) {
+      await sendEmailVerification(cred.user);
+      setPendingVerificationEmail(cred.user.email || email.trim());
+    }
   }, []);
 
-  const switchDemoRole = useCallback((role: UserRole) => {
-    setDemoState((prev) => ({ ...prev, activeDemoRole: role }));
+  const registerOrgAccount = useCallback(
+    async (email: string, password: string, displayName: string) => {
+      setAuthGateError(null);
+      const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      if (displayName.trim()) {
+        await updateProfile(cred.user, { displayName: displayName.trim() });
+      }
+      await sendEmailVerification(cred.user);
+      setPendingVerificationEmail(cred.user.email || email.trim());
+    },
+    []
+  );
+
+  const sendOrgPasswordReset = useCallback(async (email: string) => {
+    setAuthGateError(null);
+    await sendPasswordResetEmail(auth, email.trim());
   }, []);
+
+  const resendVerificationEmail = useCallback(async () => {
+    if (auth.currentUser && !auth.currentUser.emailVerified) {
+      await sendEmailVerification(auth.currentUser);
+    }
+  }, []);
+
+  const refreshAuthVerification = useCallback(async () => {
+    if (auth.currentUser) {
+      await auth.currentUser.reload();
+      await hydrateAuthenticatedUser(auth.currentUser);
+    }
+  }, [hydrateAuthenticatedUser]);
 
   const logout = useCallback(async () => {
-    localStorage.removeItem('assetledger_mode');
     if (auth.currentUser) {
       await signOut(auth);
     }
+    setFbProfile(null);
+    setPendingVerificationEmail(null);
     setMode('unauthenticated');
-  }, []);
-
-  const resetDemoData = useCallback(() => {
-    const fresh = createInitialDemoSnapshot();
-    setDemoState(fresh);
-    localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(fresh));
   }, []);
 
   const makeAuditEntry = useCallback(
     (action: string, entityType: string, entityId: string, summary: string): AuditLog => ({
       id: makeId('log'),
-      actorUid: currentUser?.uid || 'system',
-      actorName: currentUser?.displayName || 'System Admin',
-      actorRole: currentUser?.role || 'Super Admin',
-      action,
-      entityType,
-      entityId,
-      summary,
+      actorUid: fbProfile?.uid || 'system',
+      actorName: (fbProfile?.displayName || 'System Admin').slice(0, 120),
+      actorRole: fbProfile?.role || 'Super Admin',
+      action: action.slice(0, 100),
+      entityType: entityType.slice(0, 60),
+      entityId: entityId.slice(0, 128),
+      summary: summary.slice(0, 500),
       timestamp: new Date().toISOString(),
     }),
-    [currentUser]
+    [fbProfile]
   );
 
   // --- Mutations ---
@@ -570,27 +742,17 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `${isEdit ? 'Updated' : 'Created'} employee ${record.fullName} (${record.employeeCode})`
       );
 
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'employees', id), record);
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, `employees/${id}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          employees: isEdit
-            ? prev.employees.map((e) => (e.id === id ? record : e))
-            : [record, ...prev.employees],
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'employees', id), record);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `employees/${id}`);
       }
       return record;
     },
-    [employees, makeAuditEntry, mode]
+    [employees, makeAuditEntry]
   );
 
   const updateEmployeeStatus = useCallback(
@@ -615,24 +777,16 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `Updated ${target.fullName} status to ${status} (Clearance: ${clearanceStatus})`
       );
 
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'employees', employeeId), updated);
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.UPDATE, `employees/${employeeId}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          employees: prev.employees.map((e) => (e.id === employeeId ? updated : e)),
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'employees', employeeId), updated);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `employees/${employeeId}`);
       }
     },
-    [assignments, employees, makeAuditEntry, mode]
+    [assignments, employees, makeAuditEntry]
   );
 
   const completeEmployeeClearance = useCallback(
@@ -655,24 +809,16 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `Completed exit asset clearance for ${target.fullName} (${target.employeeCode})`
       );
 
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'employees', employeeId), updated);
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.UPDATE, `employees/${employeeId}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          employees: prev.employees.map((e) => (e.id === employeeId ? updated : e)),
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'employees', employeeId), updated);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `employees/${employeeId}`);
       }
     },
-    [assignments, employees, makeAuditEntry, mode]
+    [assignments, employees, makeAuditEntry]
   );
 
   const saveAsset = useCallback(
@@ -705,25 +851,17 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `${isEdit ? 'Updated' : 'Registered'} asset ${record.assetCode} (${record.name})`
       );
 
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'assets', id), record);
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, `assets/${id}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          assets: isEdit ? prev.assets.map((a) => (a.id === id ? record : a)) : [record, ...prev.assets],
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'assets', id), record);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `assets/${id}`);
       }
       return record;
     },
-    [assets, makeAuditEntry, mode]
+    [assets, makeAuditEntry]
   );
 
   const bulkImportAssets = useCallback(
@@ -763,33 +901,25 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `Bulk imported ${created.length} asset(s) from Excel (${created[0].assetCode}..${created[created.length - 1].assetCode})`
       );
 
-      if (mode === 'firebase') {
-        try {
-          const CHUNK_SIZE = 400;
-          for (let offset = 0; offset < created.length; offset += CHUNK_SIZE) {
-            const batch = writeBatch(db);
-            const slice = created.slice(offset, offset + CHUNK_SIZE);
-            for (const item of slice) {
-              batch.set(doc(db, 'assets', item.id), item);
-            }
-            if (offset === 0) {
-              batch.set(doc(db, 'auditLogs', audit.id), audit);
-            }
-            await batch.commit();
+      try {
+        const CHUNK_SIZE = 400;
+        for (let offset = 0; offset < created.length; offset += CHUNK_SIZE) {
+          const batch = writeBatch(db);
+          const slice = created.slice(offset, offset + CHUNK_SIZE);
+          for (const item of slice) {
+            batch.set(doc(db, 'assets', item.id), item);
           }
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, 'assets');
+          if (offset === 0) {
+            batch.set(doc(db, 'auditLogs', audit.id), audit);
+          }
+          await batch.commit();
         }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          assets: [...created, ...prev.assets],
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, 'assets');
       }
       return created;
     },
-    [assets, makeAuditEntry, mode]
+    [assets, makeAuditEntry]
   );
 
   const bulkImportEmployees = useCallback(
@@ -830,33 +960,25 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `Bulk imported ${created.length} employee(s) from Excel (${created[0].employeeCode}..${created[created.length - 1].employeeCode})`
       );
 
-      if (mode === 'firebase') {
-        try {
-          const CHUNK_SIZE = 400;
-          for (let offset = 0; offset < created.length; offset += CHUNK_SIZE) {
-            const batch = writeBatch(db);
-            const slice = created.slice(offset, offset + CHUNK_SIZE);
-            for (const item of slice) {
-              batch.set(doc(db, 'employees', item.id), item);
-            }
-            if (offset === 0) {
-              batch.set(doc(db, 'auditLogs', audit.id), audit);
-            }
-            await batch.commit();
+      try {
+        const CHUNK_SIZE = 400;
+        for (let offset = 0; offset < created.length; offset += CHUNK_SIZE) {
+          const batch = writeBatch(db);
+          const slice = created.slice(offset, offset + CHUNK_SIZE);
+          for (const item of slice) {
+            batch.set(doc(db, 'employees', item.id), item);
           }
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, 'employees');
+          if (offset === 0) {
+            batch.set(doc(db, 'auditLogs', audit.id), audit);
+          }
+          await batch.commit();
         }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          employees: [...created, ...prev.employees],
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, 'employees');
       }
       return created;
     },
-    [employees, makeAuditEntry, mode]
+    [employees, makeAuditEntry]
   );
 
   const updateAssetStatusDirect = useCallback(
@@ -878,35 +1000,27 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         assetId,
         `Changed ${target.assetCode} status from ${target.status} to ${status}`
       );
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'assets', assetId), updated);
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.UPDATE, `assets/${assetId}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          assets: prev.assets.map((a) => (a.id === assetId ? updated : a)),
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'assets', assetId), updated);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `assets/${assetId}`);
       }
     },
-    [assets, makeAuditEntry, mode]
+    [assets, makeAuditEntry]
   );
 
   const uploadImageAsset = useCallback(
     async (file: File, folder: 'assets' | 'returns'): Promise<string> => {
-      if (mode === 'firebase' && auth.currentUser) {
+      if (auth.currentUser) {
         try {
           const storageRef = ref(storage, `${folder}/${Date.now()}_${file.name}`);
           await uploadBytes(storageRef, file);
           return await getDownloadURL(storageRef);
         } catch {
-          // Fallback to local object/data URL if storage bucket rules block or offline
+          // Fallback to data URL if storage bucket rules block or offline
         }
       }
       return await new Promise<string>((resolve, reject) => {
@@ -916,7 +1030,7 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         reader.readAsDataURL(file);
       });
     },
-    [mode]
+    []
   );
 
   const assignAssets = useCallback(
@@ -929,11 +1043,11 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       accessoriesIncluded?: string;
       remarks?: string;
     }): Promise<AssetAssignment[]> => {
+      if (!fbProfile) throw new Error('Authenticated user required.');
       if (params.employeeIds.length === 0 || params.assetIds.length === 0) {
         throw new Error('Select at least one employee and one available asset.');
       }
 
-      // Support either 1 employee + N assets, OR N employees + N assets (1-to-1 bulk onboarding)
       const pairs: Array<{ employee: Employee; asset: Asset }> = [];
       if (params.employeeIds.length === 1) {
         const emp = employees.find((e) => e.id === params.employeeIds[0]);
@@ -988,8 +1102,8 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
           acknowledgedAt: '',
           receiptNumber,
           status: 'Active',
-          issuedByUid: currentUser?.uid || 'demo-super-admin',
-          issuedByName: currentUser?.displayName || 'Daniel Chen',
+          issuedByUid: fbProfile.uid,
+          issuedByName: fbProfile.displayName,
           createdAt: now,
           updatedAt: now,
         };
@@ -1005,65 +1119,40 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         );
       }
 
-      if (mode === 'firebase') {
-        try {
-          await runTransaction(db, async (tx) => {
-            // Read all assets first to enforce transactional non-double-assignment
-            const assetRefs = pairs.map((p) => doc(db, 'assets', p.asset.id));
-            const assetSnaps = await Promise.all(assetRefs.map((r) => tx.get(r)));
-            for (let i = 0; i < assetSnaps.length; i++) {
-              const snap = assetSnaps[i];
-              if (!snap.exists()) throw new Error('Asset no longer exists.');
-              const freshAsset = snap.data() as Asset;
-              const check = canAssignAsset(freshAsset);
-              if (!check.ok) throw new Error(check.reason);
-            }
-            for (let i = 0; i < pairs.length; i++) {
-              const { employee, asset } = pairs[i];
-              const asg = createdAssignments[i];
-              const log = auditLogsToAdd[i];
-              tx.set(doc(db, 'assets', asset.id), {
-                ...asset,
-                status: 'Assigned',
-                condition: params.conditionAtIssue,
-                assignedEmployeeId: employee.id,
-                assignedEmployeeName: employee.fullName,
-                updatedAt: now,
-              });
-              tx.set(doc(db, 'assetAssignments', asg.id), asg);
-              tx.set(doc(db, 'auditLogs', log.id), log);
-            }
-          });
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, 'assetAssignments');
-        }
-      } else {
-        setDemoState((prev) => {
-          const updatedAssetIds = new Map(
-            pairs.map((p) => [
-              p.asset.id,
-              {
-                ...p.asset,
-                status: 'Assigned' as AssetStatus,
-                condition: params.conditionAtIssue,
-                assignedEmployeeId: p.employee.id,
-                assignedEmployeeName: p.employee.fullName,
-                updatedAt: now,
-              },
-            ])
-          );
-          return {
-            ...prev,
-            assets: prev.assets.map((a) => updatedAssetIds.get(a.id) || a),
-            assignments: [...createdAssignments, ...prev.assignments],
-            auditLogs: [...auditLogsToAdd, ...prev.auditLogs],
-          };
+      try {
+        await runTransaction(db, async (tx) => {
+          const assetRefs = pairs.map((p) => doc(db, 'assets', p.asset.id));
+          const assetSnaps = await Promise.all(assetRefs.map((r) => tx.get(r)));
+          for (let i = 0; i < assetSnaps.length; i++) {
+            const snap = assetSnaps[i];
+            if (!snap.exists()) throw new Error('Asset no longer exists.');
+            const freshAsset = snap.data() as Asset;
+            const check = canAssignAsset(freshAsset);
+            if (!check.ok) throw new Error(check.reason);
+          }
+          for (let i = 0; i < pairs.length; i++) {
+            const { employee, asset } = pairs[i];
+            const asg = createdAssignments[i];
+            const log = auditLogsToAdd[i];
+            tx.set(doc(db, 'assets', asset.id), {
+              ...asset,
+              status: 'Assigned',
+              condition: params.conditionAtIssue,
+              assignedEmployeeId: employee.id,
+              assignedEmployeeName: employee.fullName,
+              updatedAt: now,
+            });
+            tx.set(doc(db, 'assetAssignments', asg.id), asg);
+            tx.set(doc(db, 'auditLogs', log.id), log);
+          }
         });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, 'assetAssignments');
       }
 
       return createdAssignments;
     },
-    [assets, assignments, currentUser, employees, makeAuditEntry, mode]
+    [assets, assignments, employees, fbProfile, makeAuditEntry]
   );
 
   const acknowledgeAssignment = useCallback(
@@ -1083,24 +1172,16 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         assignmentId,
         `${target.employeeName} acknowledged receipt of ${target.assetCode}`
       );
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'assetAssignments', assignmentId), updated);
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.UPDATE, `assetAssignments/${assignmentId}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          assignments: prev.assignments.map((a) => (a.id === assignmentId ? updated : a)),
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'assetAssignments', assignmentId), updated);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `assetAssignments/${assignmentId}`);
       }
     },
-    [assignments, makeAuditEntry, mode]
+    [assignments, makeAuditEntry]
   );
 
   const returnAsset = useCallback(
@@ -1114,6 +1195,7 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       remarks?: string;
       nextAssetStatus: ReturnNextStatus;
     }): Promise<AssetReturn> => {
+      if (!fbProfile) throw new Error('Authenticated user required.');
       const asg = assignments.find((a) => a.id === params.assignmentId);
       if (!asg) throw new Error('Assignment record not found.');
       if (asg.status !== 'Active') throw new Error('This asset assignment has already been returned.');
@@ -1137,8 +1219,8 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         returnPhotoUrl: params.returnPhotoUrl || '',
         remarks: params.remarks || '',
         nextAssetStatus: params.nextAssetStatus,
-        processedByUid: currentUser?.uid || 'demo-super-admin',
-        processedByName: currentUser?.displayName || 'Daniel Chen',
+        processedByUid: fbProfile.uid,
+        processedByName: fbProfile.displayName,
         createdAt: now,
       };
       const updatedAsg: AssetAssignment = {
@@ -1162,41 +1244,32 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `Returned ${asset.assetCode} from ${asg.employeeName} -> ${params.nextAssetStatus} (Condition: ${params.conditionAtReturn})`
       );
 
-      if (mode === 'firebase') {
-        try {
-          await runTransaction(db, async (tx) => {
-            tx.set(doc(db, 'assetReturns', retId), retRecord);
-            tx.set(doc(db, 'assetAssignments', asg.id), updatedAsg);
-            tx.set(doc(db, 'assets', asset.id), updatedAsset);
-            tx.set(doc(db, 'auditLogs', audit.id), audit);
-          });
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, `assetReturns/${retId}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          assets: prev.assets.map((a) => (a.id === asset.id ? updatedAsset : a)),
-          assignments: prev.assignments.map((a) => (a.id === asg.id ? updatedAsg : a)),
-          returns: [retRecord, ...prev.returns],
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      try {
+        await runTransaction(db, async (tx) => {
+          tx.set(doc(db, 'assetReturns', retId), retRecord);
+          tx.set(doc(db, 'assetAssignments', asg.id), updatedAsg);
+          tx.set(doc(db, 'assets', asset.id), updatedAsset);
+          tx.set(doc(db, 'auditLogs', audit.id), audit);
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `assetReturns/${retId}`);
       }
       return retRecord;
     },
-    [assets, assignments, currentUser, makeAuditEntry, mode]
+    [assets, assignments, fbProfile, makeAuditEntry]
   );
 
   const createAssetRequest = useCallback(
     async (params: { category: string; urgency: RequestUrgency; justification: string }) => {
+      if (!fbProfile) throw new Error('Authenticated user required.');
       const now = new Date().toISOString();
       const id = makeId('req');
       const req: AssetRequest = {
         id,
-        requesterUid: currentUser?.uid || 'demo-user',
-        requesterEmployeeId: currentUser?.employeeId || currentUser?.uid || 'emp-1008',
-        requesterName: currentUser?.displayName || 'Workspace User',
-        department: currentUser?.department || 'Engineering',
+        requesterUid: fbProfile.uid,
+        requesterEmployeeId: fbProfile.employeeId || fbProfile.uid,
+        requesterName: fbProfile.displayName,
+        department: fbProfile.department || 'Engineering',
         category: params.category,
         justification: params.justification,
         urgency: params.urgency,
@@ -1205,30 +1278,22 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAt: now,
       };
       const audit = makeAuditEntry(
-        'REQUEST_CREATED',
+        'ASSET_REQUEST_SUBMITTED',
         'AssetRequest',
         id,
         `${req.requesterName} requested ${req.category} (${req.urgency})`
       );
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'assetRequests', id), req);
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.CREATE, `assetRequests/${id}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          requests: [req, ...prev.requests],
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'assetRequests', id), req);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `assetRequests/${id}`);
       }
       return req;
     },
-    [currentUser, makeAuditEntry, mode]
+    [fbProfile, makeAuditEntry]
   );
 
   const transitionAssetRequest = useCallback(
@@ -1238,11 +1303,13 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       rejectionReason?: string;
       assignedAssetId?: string;
     }) => {
+      if (!fbProfile) throw new Error('Authenticated user required.');
       const existingReq = requests.find((r) => r.id === params.requestId);
       if (!existingReq) throw new Error('Asset request not found.');
-      const role = currentUser?.role || 'Employee';
-      if (!canTransitionRequest(role, existingReq.status, params.nextStatus)) {
-        throw new Error(`Role "${role}" cannot move request from "${existingReq.status}" to "${params.nextStatus}".`);
+      if (!canTransitionRequest(fbProfile.role, existingReq.status, params.nextStatus)) {
+        throw new Error(
+          `Role "${fbProfile.role}" cannot transition request from ${existingReq.status} to ${params.nextStatus}.`
+        );
       }
 
       const now = new Date().toISOString();
@@ -1251,45 +1318,38 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: params.nextStatus,
         managerApprovedBy:
           params.nextStatus === 'Manager Approved'
-            ? currentUser?.displayName || 'Manager'
+            ? fbProfile.displayName
             : existingReq.managerApprovedBy,
         managerApprovedAt:
           params.nextStatus === 'Manager Approved' ? now : existingReq.managerApprovedAt,
         itApprovedBy:
-          params.nextStatus === 'IT Approved'
-            ? currentUser?.displayName || 'IT Admin'
-            : existingReq.itApprovedBy,
+          params.nextStatus === 'IT Approved' ? fbProfile.displayName : existingReq.itApprovedBy,
         itApprovedAt: params.nextStatus === 'IT Approved' ? now : existingReq.itApprovedAt,
-        rejectionReason: params.rejectionReason || existingReq.rejectionReason,
+        rejectionReason:
+          params.nextStatus === 'Rejected'
+            ? params.rejectionReason || 'Rejected by reviewer'
+            : existingReq.rejectionReason,
         assignedAssetId: params.assignedAssetId || existingReq.assignedAssetId,
         updatedAt: now,
       };
 
       const audit = makeAuditEntry(
-        `REQUEST_${params.nextStatus.toUpperCase().replace(/\s+/g, '_')}`,
+        'ASSET_REQUEST_UPDATED',
         'AssetRequest',
         existingReq.id,
-        `${currentUser?.displayName} marked request ${existingReq.id} (${existingReq.category} for ${existingReq.requesterName}) as ${params.nextStatus}`
+        `Request ${existingReq.id} transitioned ${existingReq.status} -> ${params.nextStatus}`
       );
 
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'assetRequests', existingReq.id), updated);
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.UPDATE, `assetRequests/${existingReq.id}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          requests: prev.requests.map((r) => (r.id === existingReq.id ? updated : r)),
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'assetRequests', existingReq.id), updated);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `assetRequests/${existingReq.id}`);
       }
     },
-    [currentUser, makeAuditEntry, mode, requests]
+    [fbProfile, makeAuditEntry, requests]
   );
 
   const createMaintenanceTicket = useCallback(
@@ -1333,29 +1393,20 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `Logged maintenance ticket for ${asset.assetCode}: ${params.issueDescription.slice(0, 80)}`
       );
 
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'maintenanceRecords', id), record);
-          if (currentUser?.role === 'Super Admin' || currentUser?.role === 'IT Admin') {
-            batch.set(doc(db, 'assets', asset.id), updatedAsset);
-          }
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.CREATE, `maintenanceRecords/${id}`);
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'maintenanceRecords', id), record);
+        if (fbProfile?.role === 'Super Admin' || fbProfile?.role === 'IT Admin') {
+          batch.set(doc(db, 'assets', asset.id), updatedAsset);
         }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          maintenanceRecords: [record, ...prev.maintenanceRecords],
-          assets: prev.assets.map((a) => (a.id === asset.id ? updatedAsset : a)),
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `maintenanceRecords/${id}`);
       }
       return record;
     },
-    [assets, currentUser, makeAuditEntry, mode]
+    [assets, fbProfile, makeAuditEntry]
   );
 
   const updateMaintenanceTicket = useCallback(
@@ -1409,80 +1460,63 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `Updated maintenance ${existingRec.assetCode || existingRec.assetId} -> ${params.repairStatus}`
       );
 
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'maintenanceRecords', existingRec.id), updated);
-          if (updatedAsset) batch.set(doc(db, 'assets', updatedAsset.id), updatedAsset);
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.UPDATE, `maintenanceRecords/${existingRec.id}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          maintenanceRecords: prev.maintenanceRecords.map((m) =>
-            m.id === existingRec.id ? updated : m
-          ),
-          assets: updatedAsset
-            ? prev.assets.map((a) => (a.id === updatedAsset.id ? updatedAsset : a))
-            : prev.assets,
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'maintenanceRecords', existingRec.id), updated);
+        if (updatedAsset) batch.set(doc(db, 'assets', updatedAsset.id), updatedAsset);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `maintenanceRecords/${existingRec.id}`);
       }
     },
-    [assets, maintenanceRecords, makeAuditEntry, mode]
+    [assets, maintenanceRecords, makeAuditEntry]
   );
 
   const addDepartment = useCallback(
     async (name: string, headName: string, costCenter: string) => {
       const id = makeId('dept');
-      const dept: Department = { id, name: name.trim(), headName: headName.trim(), costCenter: costCenter.trim(), createdAt: new Date().toISOString() };
+      const dept: Department = {
+        id,
+        name: name.trim(),
+        headName: headName.trim(),
+        costCenter: costCenter.trim(),
+        createdAt: new Date().toISOString(),
+      };
       const audit = makeAuditEntry('DEPARTMENT_ADDED', 'Department', id, `Added department ${dept.name}`);
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'departments', id), dept);
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.CREATE, `departments/${id}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          departments: [...prev.departments, dept],
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'departments', id), dept);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `departments/${id}`);
       }
     },
-    [makeAuditEntry, mode]
+    [makeAuditEntry]
   );
 
   const addLocation = useCallback(
     async (name: string, city: string, country: string) => {
       const id = makeId('loc');
-      const loc: Location = { id, name: name.trim(), city: city.trim(), country: country.trim(), createdAt: new Date().toISOString() };
+      const loc: Location = {
+        id,
+        name: name.trim(),
+        city: city.trim(),
+        country: country.trim(),
+        createdAt: new Date().toISOString(),
+      };
       const audit = makeAuditEntry('LOCATION_ADDED', 'Location', id, `Added location ${loc.name}`);
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'locations', id), loc);
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.CREATE, `locations/${id}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          locations: [...prev.locations, loc],
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'locations', id), loc);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `locations/${id}`);
       }
     },
-    [makeAuditEntry, mode]
+    [makeAuditEntry]
   );
 
   const updateUserRole = useCallback(
@@ -1490,32 +1524,221 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const target = users.find((u) => u.uid === uid);
       if (!target) throw new Error('User not found.');
       const updated: AppUser = { ...target, role, updatedAt: new Date().toISOString() };
-      const audit = makeAuditEntry('USER_ROLE_UPDATED', 'User', uid, `Changed ${target.displayName} role to ${role}`);
-      if (mode === 'firebase') {
-        try {
-          const batch = writeBatch(db);
-          batch.set(doc(db, 'users', uid), updated);
-          batch.set(doc(db, 'auditLogs', audit.id), audit);
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
-        }
-      } else {
-        setDemoState((prev) => ({
-          ...prev,
-          users: prev.users.map((u) => (u.uid === uid ? updated : u)),
-          auditLogs: [audit, ...prev.auditLogs],
-        }));
+      const audit = makeAuditEntry(
+        'USER_ROLE_UPDATED',
+        'User',
+        uid,
+        `Changed ${target.displayName} role to ${role}`
+      );
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'users', uid), updated);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
       }
     },
-    [makeAuditEntry, mode, users]
+    [makeAuditEntry, users]
+  );
+
+  const saveOrgPolicy = useCallback(
+    async (input: Omit<OrgPolicy, 'id'>) => {
+      if (!fbProfile) throw new Error('Authenticated Super Admin required.');
+      const now = new Date().toISOString();
+      const record: OrgPolicy = {
+        ...input,
+        id: ORG_POLICY_DOC_ID,
+        orgName: input.orgName.trim().slice(0, 120) || 'Dextra',
+        orgSlug:
+          input.orgSlug
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, '-')
+            .slice(0, 60) || 'dextra',
+        primaryDomain: input.primaryDomain.trim().toLowerCase().slice(0, 120),
+        allowedDomains: input.allowedDomains.slice(0, 10),
+        supportEmail: input.supportEmail.trim().slice(0, 200),
+        updatedByUid: fbProfile.uid,
+        updatedByName: fbProfile.displayName,
+        updatedAt: now,
+      };
+      const audit = makeAuditEntry(
+        'ORG_POLICY_UPDATED',
+        'OrgPolicy',
+        ORG_POLICY_DOC_ID,
+        `Updated ${record.orgName} auth policy (Domains: ${record.allowedDomains.join(', ')}, Enforce: ${record.enforceDomainRestriction})`
+      );
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'orgPolicy', ORG_POLICY_DOC_ID), record);
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `orgPolicy/${ORG_POLICY_DOC_ID}`);
+      }
+    },
+    [fbProfile, makeAuditEntry]
+  );
+
+  const saveOrgIntegrations = useCallback(
+    async (
+      input: Omit<OrgIntegrations, 'id'>,
+      secretsUpdate?: { smtpPassword?: string; ldapBindPassword?: string }
+    ) => {
+      if (!fbProfile) throw new Error('Authenticated Super Admin required.');
+      const smtpCheck = validateSmtpConfig(input);
+      if (!smtpCheck.valid) throw new Error(smtpCheck.error);
+      const ldapCheck = validateLdapConfig(input);
+      if (!ldapCheck.valid) throw new Error(ldapCheck.error);
+
+      const now = new Date().toISOString();
+      const smtpHasPassword = Boolean(secretsUpdate?.smtpPassword?.trim()) || input.smtpHasPassword;
+      const ldapHasBindPassword =
+        Boolean(secretsUpdate?.ldapBindPassword?.trim()) || input.ldapHasBindPassword;
+
+      const record: OrgIntegrations = {
+        ...input,
+        id: ORG_INTEGRATIONS_DOC_ID,
+        smtpHost: input.smtpHost.trim().slice(0, 200),
+        smtpFromName: input.smtpFromName.trim().slice(0, 120),
+        smtpFromEmail: input.smtpFromEmail.trim().slice(0, 200),
+        smtpUsername: input.smtpUsername.trim().slice(0, 200),
+        smtpHasPassword,
+        ldapServerUrl: input.ldapServerUrl.trim().slice(0, 250),
+        ldapBaseDn: input.ldapBaseDn.trim().slice(0, 250),
+        ldapBindDn: input.ldapBindDn.trim().slice(0, 250),
+        ldapHasBindPassword,
+        ldapUserSearchFilter: input.ldapUserSearchFilter.trim().slice(0, 250),
+        ldapGroupSearchFilter: (input.ldapGroupSearchFilter || '').trim().slice(0, 250),
+        ldapAdminGroupDn: (input.ldapAdminGroupDn || '').trim().slice(0, 250),
+        ldapItGroupDn: (input.ldapItGroupDn || '').trim().slice(0, 250),
+        ldapHrGroupDn: (input.ldapHrGroupDn || '').trim().slice(0, 250),
+        updatedByUid: fbProfile.uid,
+        updatedByName: fbProfile.displayName,
+        updatedAt: now,
+      };
+
+      const audit = makeAuditEntry(
+        'ORG_INTEGRATIONS_UPDATED',
+        'OrgIntegrations',
+        ORG_INTEGRATIONS_DOC_ID,
+        `Updated SMTP (${record.smtpEnabled ? record.smtpHost : 'Disabled'}) & LDAP (${record.ldapEnabled ? record.ldapServerUrl : 'Disabled'})`
+      );
+
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'orgIntegrations', ORG_INTEGRATIONS_DOC_ID), record);
+        if (secretsUpdate?.smtpPassword?.trim() || secretsUpdate?.ldapBindPassword?.trim()) {
+          const nextSecrets: OrgSecrets = {
+            id: ORG_SECRETS_DOC_ID,
+            smtpPassword: secretsUpdate.smtpPassword?.trim()
+              ? secretsUpdate.smtpPassword.trim().slice(0, 256)
+              : orgSecrets?.smtpPassword || '',
+            ldapBindPassword: secretsUpdate.ldapBindPassword?.trim()
+              ? secretsUpdate.ldapBindPassword.trim().slice(0, 256)
+              : orgSecrets?.ldapBindPassword || '',
+            updatedAt: now,
+          };
+          batch.set(doc(db, 'orgSecrets', ORG_SECRETS_DOC_ID), nextSecrets);
+        }
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(
+          err,
+          OperationType.WRITE,
+          `orgIntegrations/${ORG_INTEGRATIONS_DOC_ID}`
+        );
+      }
+    },
+    [fbProfile, makeAuditEntry, orgSecrets]
+  );
+
+  const testSmtpConnection = useCallback(
+    async (params: {
+      host: string;
+      port: number;
+      security: OrgIntegrations['smtpSecurity'];
+      username: string;
+      password?: string;
+      fromEmail: string;
+      fromName: string;
+      testRecipient?: string;
+    }): Promise<ConnectionTestResult> => {
+      const response = await fetch('/api/org/test-smtp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...params,
+          password: params.password?.trim() || orgSecrets?.smtpPassword || '',
+        }),
+      });
+      const contentType = response.headers.get('content-type') || '';
+      if (response.status === 404 || !contentType.includes('application/json')) {
+        const check = validateSmtpConfig({
+          smtpEnabled: true,
+          smtpHost: params.host,
+          smtpPort: params.port,
+          smtpFromEmail: params.fromEmail,
+        });
+        if (!check.valid) return { ok: false, error: check.error };
+        return {
+          ok: true,
+          latencyMs: 0,
+          tlsActive: params.security !== 'None',
+          banner: `Validated ${params.host}:${params.port} (${params.security}). Live TCP socket test requires running via server.ts.`,
+        };
+      }
+      return (await response.json()) as ConnectionTestResult;
+    },
+    [orgSecrets]
+  );
+
+  const testLdapConnection = useCallback(
+    async (params: {
+      serverUrl: string;
+      port: number;
+      useTls: boolean;
+      bindDn: string;
+      bindPassword?: string;
+    }): Promise<ConnectionTestResult> => {
+      const response = await fetch('/api/org/test-ldap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...params,
+          bindPassword: params.bindPassword?.trim() || orgSecrets?.ldapBindPassword || '',
+        }),
+      });
+      const contentType = response.headers.get('content-type') || '';
+      if (response.status === 404 || !contentType.includes('application/json')) {
+        if (!params.serverUrl.trim() || !params.bindDn.includes('=')) {
+          return {
+            ok: false,
+            error: 'Valid LDAP server URL and Bind DN syntax are required.',
+          };
+        }
+        return {
+          ok: true,
+          latencyMs: 0,
+          tlsActive: params.useTls,
+          summary: `Validated ${params.serverUrl}:${params.port} syntax. Live LDAP bind probe requires running via server.ts.`,
+        };
+      }
+      return (await response.json()) as ConnectionTestResult;
+    },
+    [orgSecrets]
   );
 
   const value: EamsContextValue = {
     mode,
     authReady,
     loadingData,
-    currentUser,
+    pendingVerificationEmail,
+    authGateError,
+    clearAuthGateError,
+    currentUser: fbProfile,
     employees,
     assets,
     assignments,
@@ -1526,11 +1749,16 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     departments,
     locations,
     users,
+    orgPolicy,
+    orgIntegrations,
+    orgSecrets,
     signInWithGoogle,
-    enterDemoMode,
-    switchDemoRole,
+    signInWithOrgEmail,
+    registerOrgAccount,
+    sendOrgPasswordReset,
+    resendVerificationEmail,
+    refreshAuthVerification,
     logout,
-    resetDemoData,
     saveEmployee,
     bulkImportEmployees,
     updateEmployeeStatus,
@@ -1549,6 +1777,10 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     addDepartment,
     addLocation,
     updateUserRole,
+    saveOrgPolicy,
+    saveOrgIntegrations,
+    testSmtpConnection,
+    testLdapConnection,
   };
 
   return <EamsContext.Provider value={value}>{children}</EamsContext.Provider>;

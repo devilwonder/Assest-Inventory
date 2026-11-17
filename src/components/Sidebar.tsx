@@ -26,6 +26,7 @@ export interface NavItem {
 interface SidebarProps {
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
+  orgName: string;
   role: UserRole;
   pendingRequestsCount: number;
   pendingOffboardingCount: number;
@@ -37,6 +38,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onSelectTab,
+  orgName,
   role,
   pendingRequestsCount,
   pendingOffboardingCount,
@@ -91,13 +93,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navContent = (
     <div className="flex flex-col h-full bg-white border-r border-slate-200 w-64 shrink-0">
       <div className="h-16 flex items-center justify-between px-5 border-b border-slate-200">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center shrink-0">
             <ShieldCheck className="w-4 h-4" />
           </div>
-          <span className="text-base font-bold tracking-tight text-slate-900 whitespace-nowrap">
-            AssetLedger
-          </span>
+          <div className="min-w-0">
+            <div className="text-base font-bold tracking-tight text-slate-900 truncate">
+              {orgName || 'Dextra'}
+            </div>
+            <div className="text-[10px] font-medium text-slate-500 leading-none">
+              AssetLedger
+            </div>
+          </div>
         </div>
         <button
           type="button"
@@ -147,7 +154,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       <div className="p-4 border-t border-slate-200 text-xs text-slate-500">
-        <div className="font-medium text-slate-700">Enterprise Asset Governance</div>
+        <div className="font-medium text-slate-700">{orgName || 'Dextra'} Asset Governance</div>
         <div className="mt-0.5">Role: {role}</div>
       </div>
     </div>

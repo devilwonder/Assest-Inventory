@@ -1,4 +1,4 @@
-# Security Specification: AssetLedger EAMS
+# Security Specification: AssetLedger EAMS (Dextra Enterprise)
 
 ## 1. Data Invariants
 1. **Default-Deny Safety Net**: All unspecified Firestore paths are denied by default (`match /{document=**} { allow read, write: if false; }`).
@@ -8,6 +8,7 @@
 5. **Relational Integrity**: Asset assignments must reference existing `/assets/{assetId}` and `/employees/{employeeId}` documents and verify the asset is currently `'Available'` or `'Purchased'` (or updated atomically in the same transaction).
 6. **PII & Employee Scoping**: Employees can only read their own employee profile, their own assignments, and their own requests; Admins (Super Admin, IT Admin, HR Admin) and Department Managers operate within their role boundaries.
 7. **Strict Schema & Bounds**: Every string field enforces `.size() <= MAX` and ID fields enforce `^[a-zA-Z0-9_\\-]+$`.
+8. **Organization Secrets & Integration Isolation**: `/orgIntegrations/{integrationId}` (SMTP host, LDAP Base DN / Bind DN) and `/orgSecrets/{secretId}` (SMTP password, LDAP bind password) are strictly isolated to `Super Admin` only (`isSuperAdmin()`). Corporate login policy in `/orgPolicy/{policyId}` is readable only by verified signed-in users via direct `get` and writable only by `Super Admin`.
 
 ## 2. The "Dirty Dozen" Payloads (Expected: PERMISSION_DENIED)
 1. **Unauthenticated Read**: `get(/assets/AST-1)` without `request.auth`.
@@ -22,3 +23,5 @@
 10. **Mutating Return Record**: Attempting `update(/assetReturns/ret-1)` to alter damage remarks.
 11. **Oversized String DoS**: Creating `/assets/AST-9` with `notes` > 1000 chars.
 12. **Blanket List Scraping by Employee**: Employee running `list(/employees)` or `list(/auditLogs)` without ownership scoping.
+13. **Credential / LDAP Exposure**: IT Admin, HR Admin, or Employee attempting `get(/orgSecrets/dextra-secrets)` or `get(/orgIntegrations/dextra-integrations)`.
+14. **Unauthorized Org Policy Tampering**: Non-Super-Admin attempting `update(/orgPolicy/dextra-policy)` to disable domain restrictions or alter `defaultOnboardingRole`.

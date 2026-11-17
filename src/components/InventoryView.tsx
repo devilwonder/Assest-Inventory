@@ -377,7 +377,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 whitespace-nowrap"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
-                Import Excel
+                Import Assets
               </button>
               <button
                 type="button"
@@ -394,9 +394,35 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
       {/* Inventory Table */}
       {filteredAssets.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-xl p-10 text-center space-y-2">
-          <div className="text-sm font-medium text-slate-900">No assets match these criteria</div>
-          <p className="text-xs text-slate-500">Clear filters or register a new asset.</p>
+        <div className="bg-white border border-slate-200 rounded-xl p-10 text-center space-y-3">
+          <div className="text-sm font-medium text-slate-900">
+            {assets.length === 0 ? 'No assets in inventory yet' : 'No assets match these criteria'}
+          </div>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            {assets.length === 0
+              ? 'Bulk-onboard legacy hardware via CSV or Excel using pre-defined column mapping, or register an asset individually.'
+              : 'Clear filters or register a new asset.'}
+          </p>
+          {assets.length === 0 && canManage && (
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowImportModal(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                Import Assets (CSV / Excel)
+              </button>
+              <button
+                type="button"
+                onClick={openCreateModal}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Register Asset
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">

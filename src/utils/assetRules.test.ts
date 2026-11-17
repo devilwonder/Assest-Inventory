@@ -9,7 +9,11 @@ import {
   computeWarrantyAlerts,
   generateNextAssetCode,
   hasPermission,
+  isAllowedOrgEmail,
+  parseAllowedDomains,
   validateAssetUniqueness,
+  validateLdapConfig,
+  validateSmtpConfig,
 } from './assetRules';
 import type { Asset, AssetAssignment, Employee, MaintenanceRecord } from '../types/eams';
 
@@ -168,4 +172,31 @@ test('computeDashboardMetrics aggregates counts and purchase value', () => {
   assert.equal(metrics.assignedAssets, 1);
   assert.equal(metrics.lostAssets, 1);
   assert.equal(metrics.totalPurchaseValue, 4000);
+});
+
+test('parseAllowedDomains and isAllowedOrgEmail enforce corporate domains while exempting bootstrap admin', () => {
+  const domains = parseAllowedDomains('@Dextra.com, ops.dextra.com, invalid_domain');
+  assert.deepEqual(domains, ['dextra.com', 'ops.dextra.com']);
+  assert.equal(
+    isAllowedOrgEmail('alex@dextra.com', domains, true, ['pandeypratik4@gmail.com']).allowed,
+    true
+  );
+  assert.equal(
+    isAllowedOrgEmail('stranger@gmail.com', domains, true, ['pandeypratik4@gmail.com']).allowed,
+    false
+  );
+  assert.equal(
+    isAllowedOrgEmail('pandeypratik4@gmail.com', domains, true, ['pandeypratik4@gmail.com']).allowed,
+    true
+  );
+});
+
+test('validateSmtpConfig and validateLdapConfig validate required fields when enabled', () => {
+  assert.equal(validateSmtpConfig({ smtpEnabled: false, smtpHost: '', smtpPort: 587, smtpFromEmail: '' }).valid, true);
+  assert.equal(validateSmtpConfig({ smtpEnabled: true, smtpHost: '', smtpPort: 587, smtpFromEmail: 'it@dextra.com' }).valid, false);
+  assert.equal(validateSmtpConfig({ smtpEnabled: true, smtpHost: 'smtp.dextra.com', smtpPort: 587, smtpFromEmail: 'noreply@dextra.com' }).valid, true);
+
+  assert.equal(validateLdapConfig({ ldapEnabled: false, ldapServerUrl: '', ldapPort: 636, ldapBaseDn: '', ldapUserSearchFilter: '' }).valid, true);
+  assert.equal(validateLdapConfig({ ldapEnabled: true, ldapServerUrl: 'ldaps://ldap.dextra.com', ldapPort: 636, ldapBaseDn: 'invalid', ldapUserSearchFilter: '(mail={email})' }).valid, false);
+  assert.equal(validateLdapConfig({ ldapEnabled: true, ldapServerUrl: 'ldaps://ldap.dextra.com', ldapPort: 636, ldapBaseDn: 'dc=dextra,dc=com', ldapUserSearchFilter: '(mail={email})' }).valid, true);
 });

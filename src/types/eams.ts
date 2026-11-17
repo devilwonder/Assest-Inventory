@@ -295,3 +295,67 @@ export type ReportType =
   | 'lost_damaged'
   | 'offboarding_clearance'
   | 'assignment_history';
+
+export type SmtpSecurityMode = 'STARTTLS' | 'SSL/TLS' | 'None';
+
+export const SMTP_SECURITY_MODES: SmtpSecurityMode[] = ['STARTTLS', 'SSL/TLS', 'None'];
+
+export interface OrgPolicy {
+  id: string;
+  orgName: string;
+  orgSlug: string;
+  primaryDomain: string;
+  allowedDomains: string[];
+  supportEmail: string;
+  enforceDomainRestriction: boolean;
+  enableGoogleSso: boolean;
+  enableOrgEmailLogin: boolean;
+  enableLdapLogin: boolean;
+  defaultOnboardingRole: UserRole;
+  updatedByUid?: string;
+  updatedByName?: string;
+  updatedAt?: string;
+}
+
+export interface OrgIntegrations {
+  id: string;
+  smtpEnabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecurity: SmtpSecurityMode;
+  smtpFromName: string;
+  smtpFromEmail: string;
+  smtpUsername: string;
+  smtpHasPassword: boolean;
+  notifyOnAssignment: boolean;
+  notifyOnReturn: boolean;
+  notifyOnWarrantyExpiry: boolean;
+  notifyOnOffboarding: boolean;
+  smtpLastTestedAt?: string;
+  smtpLastTestStatus?: string;
+  ldapEnabled: boolean;
+  ldapServerUrl: string;
+  ldapPort: number;
+  ldapUseTls: boolean;
+  ldapBaseDn: string;
+  ldapBindDn: string;
+  ldapHasBindPassword: boolean;
+  ldapUserSearchFilter: string;
+  ldapGroupSearchFilter?: string;
+  ldapAdminGroupDn?: string;
+  ldapItGroupDn?: string;
+  ldapHrGroupDn?: string;
+  ldapSyncIntervalHours: number;
+  ldapLastTestedAt?: string;
+  ldapLastTestStatus?: string;
+  updatedByUid?: string;
+  updatedByName?: string;
+  updatedAt?: string;
+}
+
+export interface OrgSecrets {
+  id: string;
+  smtpPassword?: string;
+  ldapBindPassword?: string;
+  updatedAt?: string;
+}

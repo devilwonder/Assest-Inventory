@@ -92,6 +92,136 @@ function clampStr(val: string, maxLen: number): string {
   return val.trim().slice(0, maxLen);
 }
 
+export interface CsvColumnMappingSpec {
+  field: string;
+  csvHeader: string;
+  required: boolean;
+  aliases: string[];
+  notes: string;
+}
+
+export const ASSET_CSV_COLUMN_MAPPINGS: CsvColumnMappingSpec[] = [
+  {
+    field: 'assetCode',
+    csvHeader: 'Asset ID',
+    required: false,
+    aliases: ['Asset ID', 'Asset Code', 'Asset Tag', 'Tag', 'assetCode', 'ID'],
+    notes: 'Leave blank to auto-generate AST-2026-NNNN',
+  },
+  {
+    field: 'name',
+    csvHeader: 'Asset Name *',
+    required: true,
+    aliases: ['Asset Name', 'Name', 'Device Name', 'Equipment Name', 'Title', 'assetName'],
+    notes: 'Descriptive device title (max 160 chars)',
+  },
+  {
+    field: 'category',
+    csvHeader: 'Category *',
+    required: true,
+    aliases: ['Category', 'Asset Category', 'Type', 'Device Type', 'Hardware Type'],
+    notes: 'Laptop, Desktop, Monitor, Mobile Phone, etc.',
+  },
+  {
+    field: 'brand',
+    csvHeader: 'Brand *',
+    required: true,
+    aliases: ['Brand', 'Manufacturer', 'Make', 'OEM'],
+    notes: 'Apple, Dell, Lenovo, Cisco, etc.',
+  },
+  {
+    field: 'model',
+    csvHeader: 'Model *',
+    required: true,
+    aliases: ['Model', 'Model Number', 'Model Name'],
+    notes: 'Exact hardware model identifier',
+  },
+  {
+    field: 'serialNumber',
+    csvHeader: 'Serial Number *',
+    required: true,
+    aliases: ['Serial Number', 'Serial #', 'Serial No', 'Serial', 'S/N', 'SN', 'serialNumber'],
+    notes: 'Must be unique across inventory (min 2 chars)',
+  },
+  {
+    field: 'imei',
+    csvHeader: 'IMEI',
+    required: false,
+    aliases: ['IMEI', 'IMEI Number'],
+    notes: 'Optional for phones and cellular tablets',
+  },
+  {
+    field: 'purchaseDate',
+    csvHeader: 'Purchase Date (YYYY-MM-DD)',
+    required: false,
+    aliases: ['Purchase Date', 'Acquired Date', 'Bought Date', 'Date Purchased'],
+    notes: 'YYYY-MM-DD (defaults to today if blank)',
+  },
+  {
+    field: 'purchaseCost',
+    csvHeader: 'Purchase Cost ($) *',
+    required: true,
+    aliases: ['Purchase Cost ($)', 'Purchase Cost', 'Cost', 'Purchase Price', 'Price', 'Value', 'purchaseCost'],
+    notes: 'Numeric cost >= 0 ($ and commas stripped)',
+  },
+  {
+    field: 'vendorName',
+    csvHeader: 'Vendor Name',
+    required: false,
+    aliases: ['Vendor Name', 'Vendor', 'Supplier'],
+    notes: 'Reseller or procurement vendor',
+  },
+  {
+    field: 'warrantyStartDate',
+    csvHeader: 'Warranty Start (YYYY-MM-DD)',
+    required: false,
+    aliases: ['Warranty Start', 'Warranty Start Date'],
+    notes: 'Optional YYYY-MM-DD',
+  },
+  {
+    field: 'warrantyExpiryDate',
+    csvHeader: 'Warranty Expiry (YYYY-MM-DD)',
+    required: false,
+    aliases: ['Warranty Expiry', 'Warranty Expiry Date', 'Warranty End', 'Warranty End Date'],
+    notes: 'Used for 30-day warranty expiration alerts',
+  },
+  {
+    field: 'invoiceNumber',
+    csvHeader: 'Invoice Number',
+    required: false,
+    aliases: ['Invoice Number', 'Invoice', 'Invoice #', 'PO Number'],
+    notes: 'Procurement invoice or PO reference',
+  },
+  {
+    field: 'location',
+    csvHeader: 'Location *',
+    required: true,
+    aliases: ['Location', 'Current Location', 'Office Location', 'Office', 'Site'],
+    notes: 'Defaults to primary office if omitted',
+  },
+  {
+    field: 'condition',
+    csvHeader: 'Condition',
+    required: false,
+    aliases: ['Condition', 'Asset Condition'],
+    notes: 'New, Good, Fair, Poor, or Damaged (defaults to New)',
+  },
+  {
+    field: 'status',
+    csvHeader: 'Status',
+    required: false,
+    aliases: ['Status', 'Asset Status', 'Lifecycle Status'],
+    notes: 'Available, Purchased, Under Maintenance, etc.',
+  },
+  {
+    field: 'notes',
+    csvHeader: 'Notes',
+    required: false,
+    aliases: ['Notes', 'Remarks', 'Comments', 'Description'],
+    notes: 'Optional freeform notes (max 1000 chars)',
+  },
+];
+
 export const ASSET_TEMPLATE_HEADERS = [
   'Asset ID',
   'Asset Name *',
@@ -187,6 +317,25 @@ export function downloadAssetImportTemplate(locations: string[]): void {
   XLSX.writeFile(wb, 'assetledger-assets-import-template.xlsx');
 }
 
+export function buildAssetCsvTemplate(locations: string[]): string {
+  const wb = buildAssetTemplateWorkbook(locations);
+  const sheet = wb.Sheets['Assets'];
+  return XLSX.utils.sheet_to_csv(sheet);
+}
+
+export function downloadAssetCsvTemplate(locations: string[]): void {
+  const csv = buildAssetCsvTemplate(locations);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'dextra-assets-import-template.csv';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export const EMPLOYEE_TEMPLATE_HEADERS = [
   'Employee ID',
   'Full Name *',
@@ -246,7 +395,36 @@ export function downloadEmployeeImportTemplate(departments: string[], locations:
   XLSX.writeFile(wb, 'assetledger-employees-import-template.xlsx');
 }
 
-export async function readExcelFileRows(file: File): Promise<Array<Record<string, unknown>>> {
+export function parseCsvTextRows(csvText: string): {
+  rows: Array<Record<string, unknown>>;
+  headers: string[];
+} {
+  const cleanText = csvText.replace(/^\uFEFF/, '');
+  const workbook = XLSX.read(cleanText, { type: 'string', raw: true });
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) {
+    return { rows: [], headers: [] };
+  }
+  const sheet = workbook.Sheets[firstSheetName];
+  const headerMatrix = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: '' });
+  const headers = (headerMatrix[0] || []).map((h) => String(h).trim()).filter(Boolean);
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
+  return { rows, headers };
+}
+
+export async function readSpreadsheetFileWithHeaders(file: File): Promise<{
+  rows: Array<Record<string, unknown>>;
+  headers: string[];
+}> {
+  if (file.name.toLowerCase().endsWith('.csv') || file.type === 'text/csv') {
+    const text = await file.text();
+    const parsed = parseCsvTextRows(text);
+    if (parsed.headers.length === 0 && parsed.rows.length === 0) {
+      throw new Error('The uploaded CSV file appears to be empty.');
+    }
+    return parsed;
+  }
+
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   const firstSheetName = workbook.SheetNames[0];
@@ -254,8 +432,33 @@ export async function readExcelFileRows(file: File): Promise<Array<Record<string
     throw new Error('The uploaded spreadsheet does not contain any worksheets.');
   }
   const sheet = workbook.Sheets[firstSheetName];
+  const headerMatrix = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: '' });
+  const headers = (headerMatrix[0] || []).map((h) => String(h).trim()).filter(Boolean);
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+  return { rows, headers };
+}
+
+export async function readExcelFileRows(file: File): Promise<Array<Record<string, unknown>>> {
+  const { rows } = await readSpreadsheetFileWithHeaders(file);
   return rows;
+}
+
+export function matchPredefinedAssetHeaders(headers: string[]): Array<{
+  uploadedHeader: string;
+  mappedField: string | null;
+  targetLabel: string | null;
+}> {
+  return headers.map((uploadedHeader) => {
+    const norm = normalizeHeaderKey(uploadedHeader);
+    const match = ASSET_CSV_COLUMN_MAPPINGS.find((spec) =>
+      spec.aliases.some((alias) => normalizeHeaderKey(alias) === norm)
+    );
+    return {
+      uploadedHeader,
+      mappedField: match ? match.field : null,
+      targetLabel: match ? match.csvHeader : null,
+    };
+  });
 }
 
 export function parseAndValidateAssetRows(
@@ -274,23 +477,36 @@ export function parseAndValidateAssetRows(
   const validItems: Array<Omit<Asset, 'id'>> = [];
 
   rawRows.forEach((raw, idx) => {
-    const rowNumber = idx + 2; // Excel row 1 is header
+    const rowNumber = idx + 2; // Row 1 is header
     const map = normalizeRowKeys(raw);
 
-    const rawCode = pickField(map, ['Asset ID', 'Asset Code', 'assetCode', 'ID']);
-    const name = clampStr(pickField(map, ['Asset Name', 'Name', 'assetName']), 160);
-    const rawCat = pickField(map, ['Category', 'Asset Category']);
-    const brand = clampStr(pickField(map, ['Brand', 'Manufacturer']), 80);
-    const model = clampStr(pickField(map, ['Model', 'Model Number']), 100);
+    const rawCode = pickField(map, ['Asset ID', 'Asset Code', 'Asset Tag', 'Tag', 'assetCode', 'ID']);
+    const name = clampStr(
+      pickField(map, ['Asset Name', 'Name', 'Device Name', 'Equipment Name', 'Title', 'assetName']),
+      160
+    );
+    const rawCat = pickField(map, ['Category', 'Asset Category', 'Type', 'Device Type', 'Hardware Type']);
+    const brand = clampStr(pickField(map, ['Brand', 'Manufacturer', 'Make', 'OEM']), 80);
+    const model = clampStr(pickField(map, ['Model', 'Model Number', 'Model Name']), 100);
     const serialNumber = clampStr(
-      pickField(map, ['Serial Number', 'Serial #', 'Serial', 'serialNumber']),
+      pickField(map, ['Serial Number', 'Serial #', 'Serial No', 'Serial', 'S/N', 'SN', 'serialNumber']),
       100
     );
-    const imei = clampStr(pickField(map, ['IMEI']), 40);
-    const purchaseDateRaw = map.get(normalizeHeaderKey('Purchase Date')) ?? pickField(map, ['Purchase Date']);
+    const imei = clampStr(pickField(map, ['IMEI', 'IMEI Number']), 40);
+    const purchaseDateRaw =
+      map.get(normalizeHeaderKey('Purchase Date')) ??
+      pickField(map, ['Purchase Date', 'Acquired Date', 'Bought Date', 'Date Purchased']);
     const purchaseDate = clampStr(parseExcelDate(purchaseDateRaw, todayIso), 30);
-    const costRaw = pickField(map, ['Purchase Cost ($)', 'Purchase Cost', 'Cost', 'purchaseCost']);
-    const vendorName = clampStr(pickField(map, ['Vendor Name', 'Vendor']), 120);
+    const costRaw = pickField(map, [
+      'Purchase Cost ($)',
+      'Purchase Cost',
+      'Cost',
+      'Purchase Price',
+      'Price',
+      'Value',
+      'purchaseCost',
+    ]);
+    const vendorName = clampStr(pickField(map, ['Vendor Name', 'Vendor', 'Supplier']), 120);
     const warrantyStartRaw =
       map.get(normalizeHeaderKey('Warranty Start')) ??
       map.get(normalizeHeaderKey('Warranty Start Date')) ??
@@ -298,14 +514,17 @@ export function parseAndValidateAssetRows(
     const warrantyExpiryRaw =
       map.get(normalizeHeaderKey('Warranty Expiry')) ??
       map.get(normalizeHeaderKey('Warranty Expiry Date')) ??
-      pickField(map, ['Warranty Expiry', 'Warranty Expiry Date']);
+      pickField(map, ['Warranty Expiry', 'Warranty Expiry Date', 'Warranty End', 'Warranty End Date']);
     const warrantyStartDate = clampStr(parseExcelDate(warrantyStartRaw, ''), 30);
     const warrantyExpiryDate = clampStr(parseExcelDate(warrantyExpiryRaw, ''), 30);
-    const invoiceNumber = clampStr(pickField(map, ['Invoice Number', 'Invoice']), 80);
-    const location = clampStr(pickField(map, ['Location', 'Current Location', 'Office Location']) || defaultLocation, 120);
+    const invoiceNumber = clampStr(pickField(map, ['Invoice Number', 'Invoice', 'Invoice #', 'PO Number']), 80);
+    const location = clampStr(
+      pickField(map, ['Location', 'Current Location', 'Office Location', 'Office', 'Site']) || defaultLocation,
+      120
+    );
     const rawCond = pickField(map, ['Condition', 'Asset Condition']);
     const rawStatus = pickField(map, ['Status', 'Asset Status', 'Lifecycle Status']);
-    const notes = clampStr(pickField(map, ['Notes', 'Remarks']), 1000);
+    const notes = clampStr(pickField(map, ['Notes', 'Remarks', 'Comments', 'Description']), 1000);
 
     // Skip completely empty trailing rows
     if (!name && !brand && !model && !serialNumber && !rawCode) {

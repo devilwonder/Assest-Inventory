@@ -7,10 +7,13 @@ import {
   parseAssetCodeFromSearch,
 } from './assetQr';
 import {
+  buildAssetCsvTemplate,
   buildAssetTemplateWorkbook,
   buildEmployeeTemplateWorkbook,
+  matchPredefinedAssetHeaders,
   parseAndValidateAssetRows,
   parseAndValidateEmployeeRows,
+  parseCsvTextRows,
 } from './excelImport';
 import type { Asset, Employee } from '../types/eams';
 
@@ -74,6 +77,35 @@ test('buildAssetTemplateWorkbook includes Assets and Reference Values sheets wit
   assert.equal(parsed.errorCount, 0);
   assert.equal(parsed.validItems[0].assetCode, 'AST-2026-0051');
   assert.equal(parsed.validItems[1].assetCode, 'AST-2026-0052');
+});
+
+test('buildAssetCsvTemplate and parseCsvTextRows support pre-defined legacy column mapping', () => {
+  const csv = buildAssetCsvTemplate(['San Francisco HQ', 'London EMEA Office']);
+  const roundTrip = parseCsvTextRows(csv);
+  assert.equal(roundTrip.rows.length, 2);
+  const rtParsed = parseAndValidateAssetRows(roundTrip.rows, [existingAsset]);
+  assert.equal(rtParsed.validCount, 2);
+  assert.equal(rtParsed.errorCount, 0);
+
+  const legacyCsv = [
+    '\uFEFFAsset Tag,Device Name,Hardware Type,Make,Model,S/N,Price,Site,Warranty End,Comments',
+    'DX-1001,"ThinkPad X1 Carbon",Laptop,Lenovo,X1C-G12,00981234,"$2,150.00",London EMEA Office,2028-06-30,Migrated from legacy sheet',
+    ',iPhone 16 Pro,Mobile Phone,Apple,A3293,SN-MOB-7781,1099,San Francisco HQ,,',
+  ].join('\n');
+
+  const { rows, headers } = parseCsvTextRows(legacyCsv);
+  const mappedHeaders = matchPredefinedAssetHeaders(headers);
+  assert.equal(mappedHeaders.filter((m) => m.mappedField !== null).length, 10);
+
+  const legacyParsed = parseAndValidateAssetRows(rows, [existingAsset], 'San Francisco HQ');
+  assert.equal(legacyParsed.validCount, 2);
+  assert.equal(legacyParsed.errorCount, 0);
+  assert.equal(legacyParsed.validItems[0].assetCode, 'DX-1001');
+  assert.equal(legacyParsed.validItems[0].serialNumber, '00981234');
+  assert.equal(legacyParsed.validItems[0].purchaseCost, 2150);
+  assert.equal(legacyParsed.validItems[0].location, 'London EMEA Office');
+  assert.equal(legacyParsed.validItems[0].warrantyExpiryDate, '2028-06-30');
+  assert.equal(legacyParsed.validItems[1].assetCode, 'AST-2026-0051');
 });
 
 test('parseAndValidateAssetRows handles Excel serial dates, duplicates, and validation errors', () => {

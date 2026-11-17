@@ -200,6 +200,81 @@
         "country": { "type": "string", "maxLength": 80 }
       },
       "required": ["id", "name"]
+    },
+    "OrgPolicy": {
+      "title": "OrgPolicy",
+      "description": "Organization identity, domain restriction, and sign-in policy for Dextra.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orgName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "orgSlug": { "type": "string", "minLength": 1, "maxLength": 60, "pattern": "^[a-z0-9\\-]+$" },
+        "primaryDomain": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "allowedDomains": { "type": "array", "description": "Bounded list of allowed corporate email domains (max 10)." },
+        "supportEmail": { "type": "string", "format": "email", "maxLength": 200 },
+        "enforceDomainRestriction": { "type": "boolean" },
+        "enableGoogleSso": { "type": "boolean" },
+        "enableOrgEmailLogin": { "type": "boolean" },
+        "enableLdapLogin": { "type": "boolean" },
+        "defaultOnboardingRole": { "type": "string", "enum": ["Super Admin", "IT Admin", "HR Admin", "Department Manager", "Employee"] },
+        "updatedByUid": { "type": "string", "maxLength": 128 },
+        "updatedByName": { "type": "string", "maxLength": 120 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "orgName", "orgSlug", "primaryDomain", "allowedDomains", "supportEmail", "enforceDomainRestriction", "enableGoogleSso", "enableOrgEmailLogin", "enableLdapLogin", "defaultOnboardingRole"]
+    },
+    "OrgIntegrations": {
+      "title": "OrgIntegrations",
+      "description": "Super-Admin-only SMTP mail relay and LDAP / Active Directory connection settings.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "smtpEnabled": { "type": "boolean" },
+        "smtpHost": { "type": "string", "maxLength": 200 },
+        "smtpPort": { "type": "number" },
+        "smtpSecurity": { "type": "string", "enum": ["STARTTLS", "SSL/TLS", "None"] },
+        "smtpFromName": { "type": "string", "maxLength": 120 },
+        "smtpFromEmail": { "type": "string", "maxLength": 200 },
+        "smtpUsername": { "type": "string", "maxLength": 200 },
+        "smtpHasPassword": { "type": "boolean" },
+        "notifyOnAssignment": { "type": "boolean" },
+        "notifyOnReturn": { "type": "boolean" },
+        "notifyOnWarrantyExpiry": { "type": "boolean" },
+        "notifyOnOffboarding": { "type": "boolean" },
+        "smtpLastTestedAt": { "type": "string", "maxLength": 40 },
+        "smtpLastTestStatus": { "type": "string", "maxLength": 240 },
+        "ldapEnabled": { "type": "boolean" },
+        "ldapServerUrl": { "type": "string", "maxLength": 250 },
+        "ldapPort": { "type": "number" },
+        "ldapUseTls": { "type": "boolean" },
+        "ldapBaseDn": { "type": "string", "maxLength": 250 },
+        "ldapBindDn": { "type": "string", "maxLength": 250 },
+        "ldapHasBindPassword": { "type": "boolean" },
+        "ldapUserSearchFilter": { "type": "string", "maxLength": 250 },
+        "ldapGroupSearchFilter": { "type": "string", "maxLength": 250 },
+        "ldapAdminGroupDn": { "type": "string", "maxLength": 250 },
+        "ldapItGroupDn": { "type": "string", "maxLength": 250 },
+        "ldapHrGroupDn": { "type": "string", "maxLength": 250 },
+        "ldapSyncIntervalHours": { "type": "number" },
+        "ldapLastTestedAt": { "type": "string", "maxLength": 40 },
+        "ldapLastTestStatus": { "type": "string", "maxLength": 240 },
+        "updatedByUid": { "type": "string", "maxLength": 128 },
+        "updatedByName": { "type": "string", "maxLength": 120 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "smtpEnabled", "smtpHost", "smtpPort", "smtpSecurity", "smtpFromName", "smtpFromEmail", "smtpUsername", "smtpHasPassword", "notifyOnAssignment", "notifyOnReturn", "notifyOnWarrantyExpiry", "notifyOnOffboarding", "ldapEnabled", "ldapServerUrl", "ldapPort", "ldapUseTls", "ldapBaseDn", "ldapBindDn", "ldapHasBindPassword", "ldapUserSearchFilter", "ldapSyncIntervalHours"]
+    },
+    "OrgSecrets": {
+      "title": "OrgSecrets",
+      "description": "Strictly Super-Admin-isolated credentials for SMTP authentication and LDAP directory binding.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "smtpPassword": { "type": "string", "maxLength": 256 },
+        "ldapBindPassword": { "type": "string", "maxLength": 256 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id"]
     }
   },
   "firestore": {
@@ -242,6 +317,18 @@
     "/locations/{locationId}": {
       "schema": { "$ref": "#/entities/Location" },
       "description": "Office and storage locations"
+    },
+    "/orgPolicy/{policyId}": {
+      "schema": { "$ref": "#/entities/OrgPolicy" },
+      "description": "Organization branding, domain restriction, and sign-in policy"
+    },
+    "/orgIntegrations/{integrationId}": {
+      "schema": { "$ref": "#/entities/OrgIntegrations" },
+      "description": "Super-Admin-only SMTP and LDAP/Active Directory server settings"
+    },
+    "/orgSecrets/{secretId}": {
+      "schema": { "$ref": "#/entities/OrgSecrets" },
+      "description": "Super-Admin-only encrypted/protected SMTP and LDAP bind passwords"
     }
   }
 }

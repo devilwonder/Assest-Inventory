@@ -219,22 +219,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             </span>
           </div>
           <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
-            {metrics.byCategory.map((item) => (
-              <div key={item.label} className="space-y-1">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-700 font-medium truncate">{item.label}</span>
-                  <span className="font-mono tabular-nums text-slate-500">
-                    {item.count} · ${item.value.toLocaleString()}
-                  </span>
+            {metrics.byCategory.length === 0 ? (
+              <p className="text-xs text-slate-400 py-6 text-center">
+                No assets registered yet. Add or import assets in Inventory.
+              </p>
+            ) : (
+              metrics.byCategory.map((item) => (
+                <div key={item.label} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-700 font-medium truncate">{item.label}</span>
+                    <span className="font-mono tabular-nums text-slate-500">
+                      {item.count} · ${item.value.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-blue-700 rounded-full"
+                      style={{ width: `${Math.max(6, (item.count / maxCategoryCount) * 100)}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-700 rounded-full"
-                    style={{ width: `${Math.max(6, (item.count / maxCategoryCount) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
@@ -273,25 +279,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             </span>
           </div>
           <div className="space-y-3">
-            {metrics.byLocation.map((item) => {
-              const pct = Math.round((item.count / Math.max(1, metrics.totalAssets)) * 100);
-              return (
-                <div key={item.label} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-700 font-medium truncate">{item.label}</span>
-                    <span className="font-mono tabular-nums text-slate-600">
-                      {item.count} ({pct}%)
-                    </span>
+            {metrics.byLocation.length === 0 ? (
+              <p className="text-xs text-slate-400 py-6 text-center">
+                No location inventory recorded yet.
+              </p>
+            ) : (
+              metrics.byLocation.map((item) => {
+                const pct = Math.round((item.count / Math.max(1, metrics.totalAssets)) * 100);
+                return (
+                  <div key={item.label} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-700 font-medium truncate">{item.label}</span>
+                      <span className="font-mono tabular-nums text-slate-600">
+                        {item.count} ({pct}%)
+                      </span>
+                    </div>
+                    <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-indigo-600 rounded-full"
+                        style={{ width: `${Math.max(8, (item.count / maxLocCount) * 100)}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-indigo-600 rounded-full"
-                      style={{ width: `${Math.max(8, (item.count / maxLocCount) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
 

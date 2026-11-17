@@ -244,6 +244,72 @@ service cloud.firestore {
         && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 40));
     }
 
+    function isValidOrgPolicy(data) {
+      return data.keys().hasAll(['id', 'orgName', 'orgSlug', 'primaryDomain', 'allowedDomains', 'supportEmail', 'enforceDomainRestriction', 'enableGoogleSso', 'enableOrgEmailLogin', 'enableLdapLogin', 'defaultOnboardingRole'])
+        && data.keys().hasOnly(['id', 'orgName', 'orgSlug', 'primaryDomain', 'allowedDomains', 'supportEmail', 'enforceDomainRestriction', 'enableGoogleSso', 'enableOrgEmailLogin', 'enableLdapLogin', 'defaultOnboardingRole', 'updatedByUid', 'updatedByName', 'updatedAt'])
+        && isValidId(data.id)
+        && data.orgName is string && data.orgName.size() >= 1 && data.orgName.size() <= 120
+        && data.orgSlug is string && data.orgSlug.size() >= 1 && data.orgSlug.size() <= 60 && data.orgSlug.matches('^[a-z0-9\\-]+$')
+        && data.primaryDomain is string && data.primaryDomain.size() >= 3 && data.primaryDomain.size() <= 120
+        && data.allowedDomains is list && data.allowedDomains.size() >= 1 && data.allowedDomains.size() <= 10 && data.allowedDomains[0] is string
+        && data.supportEmail is string && data.supportEmail.size() <= 200
+        && data.enforceDomainRestriction is bool
+        && data.enableGoogleSso is bool
+        && data.enableOrgEmailLogin is bool
+        && data.enableLdapLogin is bool
+        && data.defaultOnboardingRole in ['Super Admin', 'IT Admin', 'HR Admin', 'Department Manager', 'Employee']
+        && (!('updatedByUid' in data) || (data.updatedByUid is string && data.updatedByUid.size() <= 128))
+        && (!('updatedByName' in data) || (data.updatedByName is string && data.updatedByName.size() <= 120))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 40));
+    }
+
+    function isValidOrgIntegrations(data) {
+      return data.keys().hasAll(['id', 'smtpEnabled', 'smtpHost', 'smtpPort', 'smtpSecurity', 'smtpFromName', 'smtpFromEmail', 'smtpUsername', 'smtpHasPassword', 'notifyOnAssignment', 'notifyOnReturn', 'notifyOnWarrantyExpiry', 'notifyOnOffboarding', 'ldapEnabled', 'ldapServerUrl', 'ldapPort', 'ldapUseTls', 'ldapBaseDn', 'ldapBindDn', 'ldapHasBindPassword', 'ldapUserSearchFilter', 'ldapSyncIntervalHours'])
+        && data.keys().hasOnly(['id', 'smtpEnabled', 'smtpHost', 'smtpPort', 'smtpSecurity', 'smtpFromName', 'smtpFromEmail', 'smtpUsername', 'smtpHasPassword', 'notifyOnAssignment', 'notifyOnReturn', 'notifyOnWarrantyExpiry', 'notifyOnOffboarding', 'smtpLastTestedAt', 'smtpLastTestStatus', 'ldapEnabled', 'ldapServerUrl', 'ldapPort', 'ldapUseTls', 'ldapBaseDn', 'ldapBindDn', 'ldapHasBindPassword', 'ldapUserSearchFilter', 'ldapGroupSearchFilter', 'ldapAdminGroupDn', 'ldapItGroupDn', 'ldapHrGroupDn', 'ldapSyncIntervalHours', 'ldapLastTestedAt', 'ldapLastTestStatus', 'updatedByUid', 'updatedByName', 'updatedAt'])
+        && isValidId(data.id)
+        && data.smtpEnabled is bool
+        && data.smtpHost is string && data.smtpHost.size() <= 200
+        && data.smtpPort is number && data.smtpPort >= 1 && data.smtpPort <= 65535
+        && data.smtpSecurity in ['STARTTLS', 'SSL/TLS', 'None']
+        && data.smtpFromName is string && data.smtpFromName.size() <= 120
+        && data.smtpFromEmail is string && data.smtpFromEmail.size() <= 200
+        && data.smtpUsername is string && data.smtpUsername.size() <= 200
+        && data.smtpHasPassword is bool
+        && data.notifyOnAssignment is bool
+        && data.notifyOnReturn is bool
+        && data.notifyOnWarrantyExpiry is bool
+        && data.notifyOnOffboarding is bool
+        && (!('smtpLastTestedAt' in data) || (data.smtpLastTestedAt is string && data.smtpLastTestedAt.size() <= 40))
+        && (!('smtpLastTestStatus' in data) || (data.smtpLastTestStatus is string && data.smtpLastTestStatus.size() <= 240))
+        && data.ldapEnabled is bool
+        && data.ldapServerUrl is string && data.ldapServerUrl.size() <= 250
+        && data.ldapPort is number && data.ldapPort >= 1 && data.ldapPort <= 65535
+        && data.ldapUseTls is bool
+        && data.ldapBaseDn is string && data.ldapBaseDn.size() <= 250
+        && data.ldapBindDn is string && data.ldapBindDn.size() <= 250
+        && data.ldapHasBindPassword is bool
+        && data.ldapUserSearchFilter is string && data.ldapUserSearchFilter.size() <= 250
+        && (!('ldapGroupSearchFilter' in data) || (data.ldapGroupSearchFilter is string && data.ldapGroupSearchFilter.size() <= 250))
+        && (!('ldapAdminGroupDn' in data) || (data.ldapAdminGroupDn is string && data.ldapAdminGroupDn.size() <= 250))
+        && (!('ldapItGroupDn' in data) || (data.ldapItGroupDn is string && data.ldapItGroupDn.size() <= 250))
+        && (!('ldapHrGroupDn' in data) || (data.ldapHrGroupDn is string && data.ldapHrGroupDn.size() <= 250))
+        && data.ldapSyncIntervalHours is number && data.ldapSyncIntervalHours >= 1 && data.ldapSyncIntervalHours <= 168
+        && (!('ldapLastTestedAt' in data) || (data.ldapLastTestedAt is string && data.ldapLastTestedAt.size() <= 40))
+        && (!('ldapLastTestStatus' in data) || (data.ldapLastTestStatus is string && data.ldapLastTestStatus.size() <= 240))
+        && (!('updatedByUid' in data) || (data.updatedByUid is string && data.updatedByUid.size() <= 128))
+        && (!('updatedByName' in data) || (data.updatedByName is string && data.updatedByName.size() <= 120))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 40));
+    }
+
+    function isValidOrgSecrets(data) {
+      return data.keys().hasAll(['id'])
+        && data.keys().hasOnly(['id', 'smtpPassword', 'ldapBindPassword', 'updatedAt'])
+        && isValidId(data.id)
+        && (!('smtpPassword' in data) || (data.smtpPassword is string && data.smtpPassword.size() <= 256))
+        && (!('ldapBindPassword' in data) || (data.ldapBindPassword is string && data.ldapBindPassword.size() <= 256))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 40));
+    }
+
     // --- Collection Rules ---
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isSuperAdmin());
@@ -364,6 +430,34 @@ service cloud.firestore {
       allow list: if isSignedIn();
       allow create, update: if isSignedIn() && isValidId(locationId) && isValidLocation(incoming()) && isSuperAdmin();
       allow delete: if isSuperAdmin() && isValidId(locationId);
+    }
+
+    match /orgPolicy/{policyId} {
+      allow get: if isSignedIn() && isValidId(policyId);
+      allow list: if isSuperAdmin();
+      allow create: if isSignedIn() && isValidId(policyId) && isValidOrgPolicy(incoming()) && isSuperAdmin();
+      allow update: if isSignedIn() && isValidId(policyId) && isValidOrgPolicy(incoming())
+        && incoming().id == existing().id
+        && isSuperAdmin();
+      allow delete: if false;
+    }
+
+    match /orgIntegrations/{integrationId} {
+      allow get: if isSuperAdmin() && isValidId(integrationId);
+      allow list: if isSuperAdmin();
+      allow create: if isSuperAdmin() && isValidId(integrationId) && isValidOrgIntegrations(incoming());
+      allow update: if isSuperAdmin() && isValidId(integrationId) && isValidOrgIntegrations(incoming())
+        && incoming().id == existing().id;
+      allow delete: if false;
+    }
+
+    match /orgSecrets/{secretId} {
+      allow get: if isSuperAdmin() && isValidId(secretId);
+      allow list: if isSuperAdmin();
+      allow create: if isSuperAdmin() && isValidId(secretId) && isValidOrgSecrets(incoming());
+      allow update: if isSuperAdmin() && isValidId(secretId) && isValidOrgSecrets(incoming())
+        && incoming().id == existing().id;
+      allow delete: if false;
     }
   }
 }

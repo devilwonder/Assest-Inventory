@@ -432,3 +432,80 @@ export function computeDashboardMetrics(
     pendingRequestsCount,
   };
 }
+
+export function parseAllowedDomains(raw: string): string[] {
+  const parts = raw
+    .split(/[,\s;]+/)
+    .map((s) => s.trim().toLowerCase().replace(/^@/, ''))
+    .filter((s) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(s));
+  return Array.from(new Set(parts)).slice(0, 10);
+}
+
+export function isAllowedOrgEmail(
+  email: string,
+  allowedDomains: string[],
+  enforceDomainRestriction: boolean,
+  exemptEmails: string[] = []
+): { allowed: boolean; reason?: string } {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized || !normalized.includes('@')) {
+    return { allowed: false, reason: 'A valid corporate email address is required.' };
+  }
+  if (exemptEmails.some((e) => e.trim().toLowerCase() === normalized)) {
+    return { allowed: true };
+  }
+  if (!enforceDomainRestriction || allowedDomains.length === 0) {
+    return { allowed: true };
+  }
+  const domain = normalized.split('@')[1];
+  const normalizedAllowed = allowedDomains.map((d) => d.trim().toLowerCase().replace(/^@/, ''));
+  if (!normalizedAllowed.includes(domain)) {
+    return {
+      allowed: false,
+      reason: `Email domain "${domain}" is not authorized. Allowed domain(s): ${normalizedAllowed.join(', ')}.`,
+    };
+  }
+  return { allowed: true };
+}
+
+export function validateSmtpConfig(config: {
+  smtpEnabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpFromEmail: string;
+}): { valid: boolean; error?: string } {
+  if (!config.smtpEnabled) return { valid: true };
+  if (!config.smtpHost.trim()) {
+    return { valid: false, error: 'SMTP server hostname is required when SMTP is enabled.' };
+  }
+  if (!Number.isInteger(config.smtpPort) || config.smtpPort < 1 || config.smtpPort > 65535) {
+    return { valid: false, error: 'SMTP port must be between 1 and 65535.' };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(config.smtpFromEmail.trim())) {
+    return { valid: false, error: 'A valid Sender From Email address is required.' };
+  }
+  return { valid: true };
+}
+
+export function validateLdapConfig(config: {
+  ldapEnabled: boolean;
+  ldapServerUrl: string;
+  ldapPort: number;
+  ldapBaseDn: string;
+  ldapUserSearchFilter: string;
+}): { valid: boolean; error?: string } {
+  if (!config.ldapEnabled) return { valid: true };
+  if (!config.ldapServerUrl.trim()) {
+    return { valid: false, error: 'LDAP server URL (e.g. ldaps://ldap.dextra.com) is required.' };
+  }
+  if (!Number.isInteger(config.ldapPort) || config.ldapPort < 1 || config.ldapPort > 65535) {
+    return { valid: false, error: 'LDAP port must be between 1 and 65535.' };
+  }
+  if (!config.ldapBaseDn.trim() || !config.ldapBaseDn.includes('=')) {
+    return { valid: false, error: 'Valid LDAP Base DN (e.g. dc=dextra,dc=com) is required.' };
+  }
+  if (!config.ldapUserSearchFilter.trim()) {
+    return { valid: false, error: 'User search filter (e.g. (mail={email})) is required.' };
+  }
+  return { valid: true };
+}
