@@ -131,7 +131,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     warrantyStartDate: '2026-11-17',
     warrantyExpiryDate: '2029-11-17',
     invoiceNumber: '',
-    location: locations[0]?.name || 'San Francisco HQ',
+    location: locations[0]?.name || 'Head Office',
     condition: 'New' as AssetCondition,
     status: 'Available' as AssetStatus,
     notes: '',
@@ -156,7 +156,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       warrantyStartDate: '2026-11-17',
       warrantyExpiryDate: '2029-11-17',
       invoiceNumber: '',
-      location: locations[0]?.name || 'San Francisco HQ',
+      location: locations[0]?.name || 'Head Office',
       condition: 'New',
       status: 'Available',
       notes: '',
@@ -1038,20 +1038,35 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 </div>
                 <div>
                   <label htmlFor="ast-loc" className="block text-xs font-medium text-slate-700 mb-1">
-                    Current Location
+                    Current Location *
                   </label>
-                  <select
-                    id="ast-loc"
-                    value={form.location}
-                    onChange={(e) => setForm({ ...form, location: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-                  >
-                    {locations.map((l) => (
-                      <option key={l.id} value={l.name}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </select>
+                  {locations.length > 0 ? (
+                    <select
+                      id="ast-loc"
+                      value={form.location}
+                      onChange={(e) => setForm({ ...form, location: e.target.value })}
+                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                    >
+                      {!locations.some((l) => l.name === form.location) && form.location && (
+                        <option value={form.location}>{form.location}</option>
+                      )}
+                      {locations.map((l) => (
+                        <option key={l.id} value={l.name}>
+                          {l.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      id="ast-loc"
+                      type="text"
+                      required
+                      value={form.location}
+                      onChange={(e) => setForm({ ...form, location: e.target.value })}
+                      placeholder="e.g. Head Office"
+                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                    />
+                  )}
                 </div>
                 <div>
                   <label htmlFor="ast-cond" className="block text-xs font-medium text-slate-700 mb-1">

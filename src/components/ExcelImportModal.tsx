@@ -113,7 +113,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
         const res = parseAndValidateAssetRows(
           rawRows,
           existingAssets,
-          locations[0] || 'San Francisco HQ'
+          locations[0] || 'Head Office'
         );
         if (res.rows.length === 0) {
           setParseError('No non-empty asset rows found in the uploaded file.');
@@ -126,8 +126,8 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
         const res = parseAndValidateEmployeeRows(
           rawRows,
           existingEmployees,
-          departments[0] || 'Engineering',
-          locations[0] || 'San Francisco HQ'
+          departments[0] || 'General',
+          locations[0] || 'Head Office'
         );
         if (res.rows.length === 0) {
           setParseError('No non-empty employee rows found in the first worksheet.');

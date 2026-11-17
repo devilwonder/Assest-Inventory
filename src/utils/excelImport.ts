@@ -243,7 +243,7 @@ export const ASSET_TEMPLATE_HEADERS = [
 ] as const;
 
 export function buildAssetTemplateWorkbook(locations: string[]): XLSX.WorkBook {
-  const defaultLoc = locations[0] || 'San Francisco HQ';
+  const defaultLoc = locations[0] || 'Head Office';
   const secondLoc = locations[1] || defaultLoc;
   const sampleRows = [
     {
@@ -314,7 +314,7 @@ export function buildAssetTemplateWorkbook(locations: string[]): XLSX.WorkBook {
 
 export function downloadAssetImportTemplate(locations: string[]): void {
   const wb = buildAssetTemplateWorkbook(locations);
-  XLSX.writeFile(wb, 'assetledger-assets-import-template.xlsx');
+  XLSX.writeFile(wb, 'dextra-assets-import-template.xlsx');
 }
 
 export function buildAssetCsvTemplate(locations: string[]): string {
@@ -353,17 +353,17 @@ export function buildEmployeeTemplateWorkbook(
   departments: string[],
   locations: string[]
 ): XLSX.WorkBook {
-  const defaultDept = departments[0] || 'Engineering';
-  const defaultLoc = locations[0] || 'San Francisco HQ';
+  const defaultDept = departments[0] || 'General';
+  const defaultLoc = locations[0] || 'Head Office';
   const sampleRows = [
     {
       'Employee ID': '',
-      'Full Name *': 'Jordan Blake',
-      'Email *': 'jordan.blake@assetledger.io',
-      Phone: '+1 (415) 555-0194',
+      'Full Name *': 'Employee Full Name',
+      'Email *': 'employee@dextra.com',
+      Phone: '+1 (555) 010-0001',
       'Department *': defaultDept,
-      'Designation *': 'Senior Platform Engineer',
-      'Reporting Manager': 'Marcus Vance',
+      'Designation *': 'Role / Title',
+      'Reporting Manager': 'Manager Name',
       'Joining Date (YYYY-MM-DD) *': '2026-11-17',
       'Employment Status': 'Active',
       'Location *': defaultLoc,
@@ -392,7 +392,7 @@ export function buildEmployeeTemplateWorkbook(
 
 export function downloadEmployeeImportTemplate(departments: string[], locations: string[]): void {
   const wb = buildEmployeeTemplateWorkbook(departments, locations);
-  XLSX.writeFile(wb, 'assetledger-employees-import-template.xlsx');
+  XLSX.writeFile(wb, 'dextra-employees-import-template.xlsx');
 }
 
 export function parseCsvTextRows(csvText: string): {

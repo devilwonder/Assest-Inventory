@@ -37,12 +37,12 @@ export const EmployeesView: React.FC = () => {
     fullName: '',
     email: '',
     phone: '',
-    department: departments[0]?.name || 'Engineering',
+    department: departments[0]?.name || 'General',
     designation: '',
     reportingManager: '',
     joiningDate: '2026-11-17',
     employmentStatus: 'Active' as EmploymentStatus,
-    location: locations[0]?.name || 'San Francisco HQ',
+    location: locations[0]?.name || 'Head Office',
   });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -90,12 +90,12 @@ export const EmployeesView: React.FC = () => {
       fullName: '',
       email: '',
       phone: '',
-      department: departments[0]?.name || 'Engineering',
+      department: departments[0]?.name || 'General',
       designation: '',
       reportingManager: '',
       joiningDate: '2026-11-17',
       employmentStatus: 'Active',
-      location: locations[0]?.name || 'San Francisco HQ',
+      location: locations[0]?.name || 'Head Office',
     });
     setFormError('');
     setShowModal(true);
@@ -651,20 +651,35 @@ export const EmployeesView: React.FC = () => {
                 </div>
                 <div>
                   <label htmlFor="emp-dept" className="block text-xs font-medium text-slate-700 mb-1">
-                    Department
+                    Department *
                   </label>
-                  <select
-                    id="emp-dept"
-                    value={formState.department}
-                    onChange={(e) => setFormState({ ...formState, department: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-                  >
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.name}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
+                  {departments.length > 0 ? (
+                    <select
+                      id="emp-dept"
+                      value={formState.department}
+                      onChange={(e) => setFormState({ ...formState, department: e.target.value })}
+                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                    >
+                      {!departments.some((d) => d.name === formState.department) && formState.department && (
+                        <option value={formState.department}>{formState.department}</option>
+                      )}
+                      {departments.map((d) => (
+                        <option key={d.id} value={d.name}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      id="emp-dept"
+                      type="text"
+                      required
+                      value={formState.department}
+                      onChange={(e) => setFormState({ ...formState, department: e.target.value })}
+                      placeholder="e.g. IT Operations"
+                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                    />
+                  )}
                 </div>
                 <div>
                   <label htmlFor="emp-desig" className="block text-xs font-medium text-slate-700 mb-1">
@@ -705,20 +720,35 @@ export const EmployeesView: React.FC = () => {
                 </div>
                 <div>
                   <label htmlFor="emp-location" className="block text-xs font-medium text-slate-700 mb-1">
-                    Office Location
+                    Office Location *
                   </label>
-                  <select
-                    id="emp-location"
-                    value={formState.location}
-                    onChange={(e) => setFormState({ ...formState, location: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-                  >
-                    {locations.map((l) => (
-                      <option key={l.id} value={l.name}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </select>
+                  {locations.length > 0 ? (
+                    <select
+                      id="emp-location"
+                      value={formState.location}
+                      onChange={(e) => setFormState({ ...formState, location: e.target.value })}
+                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                    >
+                      {!locations.some((l) => l.name === formState.location) && formState.location && (
+                        <option value={formState.location}>{formState.location}</option>
+                      )}
+                      {locations.map((l) => (
+                        <option key={l.id} value={l.name}>
+                          {l.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      id="emp-location"
+                      type="text"
+                      required
+                      value={formState.location}
+                      onChange={(e) => setFormState({ ...formState, location: e.target.value })}
+                      placeholder="e.g. Head Office"
+                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                    />
+                  )}
                 </div>
                 <div>
                   <label htmlFor="emp-status" className="block text-xs font-medium text-slate-700 mb-1">

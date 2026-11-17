@@ -11,6 +11,7 @@ import {
   Send,
   Server,
   Shield,
+  Trash2,
   UserCog,
 } from 'lucide-react';
 import { useEams, type ConnectionTestResult } from '../services/eamsStore';
@@ -68,12 +69,15 @@ export const SettingsView: React.FC = () => {
     orgPolicy,
     orgIntegrations,
     addDepartment,
+    deleteDepartment,
     addLocation,
+    deleteLocation,
     updateUserRole,
     saveOrgPolicy,
     saveOrgIntegrations,
     testSmtpConnection,
     testLdapConnection,
+    purgeOperationalWorkspaceData,
   } = useEams();
 
   const canManageSettings = currentUser ? hasPermission(currentUser.role, 'manage_settings') : false;
@@ -118,6 +122,12 @@ export const SettingsView: React.FC = () => {
     null
   );
   const [testingLdap, setTestingLdap] = useState(false);
+  const [confirmCleanData, setConfirmCleanData] = useState(false);
+  const [cleaningData, setCleaningData] = useState(false);
+  const [cleanDataFeedback, setCleanDataFeedback] = useState<{
+    type: 'ok' | 'err';
+    text: string;
+  } | null>(null);
   const [savingLdap, setSavingLdap] = useState(false);
 
   // Directory & Audit state
@@ -1154,18 +1164,39 @@ export const SettingsView: React.FC = () => {
                 </h2>
               </div>
               <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg max-h-56 overflow-y-auto">
-                {departments.map((d) => (
-                  <div
-                    key={d.id}
-                    className="px-3.5 py-2.5 flex items-center justify-between text-xs"
-                  >
-                    <div>
-                      <div className="font-medium text-slate-900">{d.name}</div>
-                      <div className="text-slate-500">Head: {d.headName || 'Unassigned'}</div>
-                    </div>
-                    <span className="font-mono text-slate-500">{d.costCenter || '—'}</span>
+                {departments.length === 0 ? (
+                  <div className="px-3.5 py-6 text-center text-xs text-slate-500">
+                    No departments configured yet. Add your organization&apos;s departments below.
                   </div>
-                ))}
+                ) : (
+                  departments.map((d) => (
+                    <div
+                      key={d.id}
+                      className="px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-medium text-slate-900 truncate">{d.name}</div>
+                        <div className="text-slate-500 truncate">
+                          Head: {d.headName || 'Unassigned'}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <span className="font-mono text-slate-500">{d.costCenter || '—'}</span>
+                        {canManageSettings && (
+                          <button
+                            type="button"
+                            onClick={() => deleteDepartment(d.id)}
+                            aria-label={`Delete department ${d.name}`}
+                            title={`Delete ${d.name}`}
+                            className="p-1 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
               {canManageSettings && (
                 <form
@@ -1213,17 +1244,36 @@ export const SettingsView: React.FC = () => {
                 </h2>
               </div>
               <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg max-h-56 overflow-y-auto">
-                {locations.map((l) => (
-                  <div
-                    key={l.id}
-                    className="px-3.5 py-2.5 flex items-center justify-between text-xs"
-                  >
-                    <div className="font-medium text-slate-900">{l.name}</div>
-                    <span className="text-slate-500">
-                      {[l.city, l.country].filter(Boolean).join(', ')}
-                    </span>
+                {locations.length === 0 ? (
+                  <div className="px-3.5 py-6 text-center text-xs text-slate-500">
+                    No office locations configured yet. Add your first office site below.
                   </div>
-                ))}
+                ) : (
+                  locations.map((l) => (
+                    <div
+                      key={l.id}
+                      className="px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="font-medium text-slate-900 truncate">{l.name}</div>
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <span className="text-slate-500">
+                          {[l.city, l.country].filter(Boolean).join(', ')}
+                        </span>
+                        {canManageSettings && (
+                          <button
+                            type="button"
+                            onClick={() => deleteLocation(l.id)}
+                            aria-label={`Delete location ${l.name}`}
+                            title={`Delete ${l.name}`}
+                            className="p-1 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
               {canManageSettings && (
                 <form
@@ -1382,6 +1432,91 @@ export const SettingsView: React.FC = () => {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+          {canManageSettings && (
+            <div className="bg-white border border-rose-200 rounded-xl p-5 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-900">
+                    Clean Demo &amp; Operational Data
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Remove all existing assets, employees, maintenance tickets, requests,
+                    departments, and locations from Firestore so Dextra starts completely clean.
+                    Organization policy, SMTP/LDAP settings, user accounts, and immutable audit logs
+                    are preserved.
+                  </p>
+                </div>
+                {!confirmCleanData ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmCleanData(true);
+                      setCleanDataFeedback(null);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 shrink-0"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Clean Workspace Data
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={cleaningData}
+                      onClick={async () => {
+                        setCleaningData(true);
+                        setCleanDataFeedback(null);
+                        try {
+                          const res = await purgeOperationalWorkspaceData();
+                          setCleanDataFeedback({
+                            type: 'ok',
+                            text:
+                              res.deletedCount === 0
+                                ? 'Workspace is already clean (0 operational/demo records found).'
+                                : `Cleaned ${res.deletedCount} record(s) from Firestore.`,
+                          });
+                          setConfirmCleanData(false);
+                        } catch (err) {
+                          setCleanDataFeedback({
+                            type: 'err',
+                            text:
+                              err instanceof Error
+                                ? err.message
+                                : 'Failed to clean workspace data.',
+                          });
+                        } finally {
+                          setCleaningData(false);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-rose-700 rounded-lg hover:bg-rose-800 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      {cleaningData ? 'Cleaning...' : 'Confirm Permanent Delete'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={cleaningData}
+                      onClick={() => setConfirmCleanData(false)}
+                      className="px-3 py-2 text-xs font-medium text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+              {cleanDataFeedback && (
+                <div
+                  className={`p-3 text-xs rounded-lg border ${
+                    cleanDataFeedback.type === 'ok'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-rose-50 border-rose-200 text-rose-800'
+                  }`}
+                >
+                  {cleanDataFeedback.text}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -27,10 +27,6 @@ import {
 } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { auth, db, googleProvider, handleFirestoreError, OperationType, storage } from '../firebase';
-import {
-  SEED_DEPARTMENTS,
-  SEED_LOCATIONS,
-} from '../data/seedData';
 import type {
   AppUser,
   Asset,
@@ -236,7 +232,9 @@ export interface EamsContextValue {
 
   // Settings & Organization Configuration actions
   addDepartment: (name: string, headName: string, costCenter: string) => Promise<void>;
+  deleteDepartment: (departmentId: string) => Promise<void>;
   addLocation: (name: string, city: string, country: string) => Promise<void>;
+  deleteLocation: (locationId: string) => Promise<void>;
   updateUserRole: (uid: string, role: UserRole) => Promise<void>;
   saveOrgPolicy: (policy: Omit<OrgPolicy, 'id'>) => Promise<void>;
   saveOrgIntegrations: (
@@ -260,6 +258,7 @@ export interface EamsContextValue {
     bindDn: string;
     bindPassword?: string;
   }) => Promise<ConnectionTestResult>;
+  purgeOperationalWorkspaceData: () => Promise<{ deletedCount: number }>;
 }
 
 const EamsContext = createContext<EamsContextValue | null>(null);
@@ -302,41 +301,53 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearAuthGateError = useCallback(() => setAuthGateError(null), []);
 
-  // Seed baseline organization structure & policies when Super Admin first initializes Dextra workspace
-  const seedFirestoreIfEmpty = useCallback(async (uid: string, displayName: string) => {
+  // Initialize organization policy & integration settings and remove any legacy seeded demo depts/locations
+  const ensureOrgConfigInitialized = useCallback(async (uid: string, displayName: string) => {
     const now = new Date().toISOString();
     const safeDisplayName = displayName.trim().slice(0, 120) || 'Super Admin';
 
-    let deptsSnap;
-    try {
-      deptsSnap = await getDocs(collection(db, 'departments'));
-    } catch (err) {
-      handleFirestoreError(err, OperationType.LIST, 'departments');
-    }
-    if (deptsSnap.empty) {
-      try {
-        const batch = writeBatch(db);
-        for (const d of SEED_DEPARTMENTS) batch.set(doc(db, 'departments', d.id), d);
-        await batch.commit();
-      } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, 'departments');
-      }
-    }
+    const LEGACY_SEED_DEPT_IDS = new Set([
+      'dept-eng',
+      'dept-prod',
+      'dept-it',
+      'dept-hr',
+      'dept-fin',
+      'dept-sales',
+      'dept-ops',
+    ]);
+    const LEGACY_SEED_LOC_IDS = new Set(['loc-sf', 'loc-ny', 'loc-aus', 'loc-lon']);
+    const LEGACY_SEED_TIMESTAMP = '2025-01-10T09:00:00Z';
 
-    let locsSnap;
     try {
-      locsSnap = await getDocs(collection(db, 'locations'));
-    } catch (err) {
-      handleFirestoreError(err, OperationType.LIST, 'locations');
-    }
-    if (locsSnap.empty) {
-      try {
-        const batch = writeBatch(db);
-        for (const l of SEED_LOCATIONS) batch.set(doc(db, 'locations', l.id), l);
-        await batch.commit();
-      } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, 'locations');
+      const [deptsSnap, locsSnap] = await Promise.all([
+        getDocs(collection(db, 'departments')),
+        getDocs(collection(db, 'locations')),
+      ]);
+      const legacyRefs = [
+        ...deptsSnap.docs
+          .filter(
+            (d) =>
+              LEGACY_SEED_DEPT_IDS.has(d.id) &&
+              (d.data() as Partial<Department>).createdAt === LEGACY_SEED_TIMESTAMP
+          )
+          .map((d) => d.ref),
+        ...locsSnap.docs
+          .filter(
+            (l) =>
+              LEGACY_SEED_LOC_IDS.has(l.id) &&
+              (l.data() as Partial<Location>).createdAt === LEGACY_SEED_TIMESTAMP
+          )
+          .map((l) => l.ref),
+      ];
+      if (legacyRefs.length > 0) {
+        const cleanupBatch = writeBatch(db);
+        for (const r of legacyRefs) {
+          cleanupBatch.delete(r);
+        }
+        await cleanupBatch.commit();
       }
+    } catch {
+      // Non-fatal if collection read/cleanup is unavailable
     }
 
     const policyRef = doc(db, 'orgPolicy', ORG_POLICY_DOC_ID);
@@ -442,7 +453,7 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
             displayName: rawName.trim().slice(0, 120) || 'Workspace User',
             photoUrl: (user.photoURL || '').slice(0, 500),
             role: isBootstrap ? 'Super Admin' : 'Employee',
-            department: isBootstrap ? 'IT & Security' : 'Engineering',
+            department: isBootstrap ? 'IT & Security' : 'General',
             createdAt: now,
             updatedAt: now,
           };
@@ -487,7 +498,7 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         if (profile.role === 'Super Admin') {
-          await seedFirestoreIfEmpty(profile.uid, profile.displayName);
+          await ensureOrgConfigInitialized(profile.uid, profile.displayName);
         }
 
         setFbProfile(profile);
@@ -503,7 +514,7 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setAuthReady(true);
       }
     },
-    [seedFirestoreIfEmpty]
+    [ensureOrgConfigInitialized]
   );
 
   // Surface any Google Redirect SSO completion errors on standalone domains (e.g. Vercel)
@@ -1536,6 +1547,27 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [makeAuditEntry]
   );
 
+  const deleteDepartment = useCallback(
+    async (departmentId: string) => {
+      const target = departments.find((d) => d.id === departmentId);
+      const audit = makeAuditEntry(
+        'DEPARTMENT_DELETED',
+        'Department',
+        departmentId,
+        `Removed department ${target?.name || departmentId}`
+      );
+      try {
+        const batch = writeBatch(db);
+        batch.delete(doc(db, 'departments', departmentId));
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `departments/${departmentId}`);
+      }
+    },
+    [departments, makeAuditEntry]
+  );
+
   const addLocation = useCallback(
     async (name: string, city: string, country: string) => {
       const id = makeId('loc');
@@ -1557,6 +1589,27 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     },
     [makeAuditEntry]
+  );
+
+  const deleteLocation = useCallback(
+    async (locationId: string) => {
+      const target = locations.find((l) => l.id === locationId);
+      const audit = makeAuditEntry(
+        'LOCATION_DELETED',
+        'Location',
+        locationId,
+        `Removed office location ${target?.name || locationId}`
+      );
+      try {
+        const batch = writeBatch(db);
+        batch.delete(doc(db, 'locations', locationId));
+        batch.set(doc(db, 'auditLogs', audit.id), audit);
+        await batch.commit();
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `locations/${locationId}`);
+      }
+    },
+    [locations, makeAuditEntry]
   );
 
   const updateUserRole = useCallback(
@@ -1771,6 +1824,62 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [orgSecrets]
   );
 
+  const purgeOperationalWorkspaceData = useCallback(async (): Promise<{ deletedCount: number }> => {
+    if (!fbProfile || fbProfile.role !== 'Super Admin') {
+      throw new Error('Only Super Admins can purge workspace operational data.');
+    }
+
+    const cleanableCollections = [
+      'assets',
+      'employees',
+      'assetRequests',
+      'maintenanceRecords',
+      'departments',
+      'locations',
+    ] as const;
+
+    let deletedCount = 0;
+
+    for (const colName of cleanableCollections) {
+      let snap;
+      try {
+        snap = await getDocs(collection(db, colName));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.LIST, colName);
+      }
+      if (snap.empty) continue;
+
+      const refs = snap.docs.map((d) => d.ref);
+      for (let i = 0; i < refs.length; i += 400) {
+        const chunk = refs.slice(i, i + 400);
+        const batch = writeBatch(db);
+        for (const r of chunk) {
+          batch.delete(r);
+        }
+        try {
+          await batch.commit();
+        } catch (err) {
+          handleFirestoreError(err, OperationType.DELETE, colName);
+        }
+        deletedCount += chunk.length;
+      }
+    }
+
+    const audit = makeAuditEntry(
+      'WORKSPACE_DATA_CLEANED',
+      'OrgPolicy',
+      ORG_POLICY_DOC_ID,
+      `Purged ${deletedCount} demo/operational record(s) from workspace collections`
+    );
+    try {
+      await setDoc(doc(db, 'auditLogs', audit.id), audit);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `auditLogs/${audit.id}`);
+    }
+
+    return { deletedCount };
+  }, [fbProfile, makeAuditEntry]);
+
   const value: EamsContextValue = {
     mode,
     authReady,
@@ -1816,12 +1925,15 @@ export const EamsProvider: React.FC<{ children: React.ReactNode }> = ({ children
     createMaintenanceTicket,
     updateMaintenanceTicket,
     addDepartment,
+    deleteDepartment,
     addLocation,
+    deleteLocation,
     updateUserRole,
     saveOrgPolicy,
     saveOrgIntegrations,
     testSmtpConnection,
     testLdapConnection,
+    purgeOperationalWorkspaceData,
   };
 
   return <EamsContext.Provider value={value}>{children}</EamsContext.Provider>;
