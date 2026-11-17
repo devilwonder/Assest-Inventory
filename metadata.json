@@ -1,0 +1,6 @@
+{
+  "name": "AssetLedger — Enterprise Employee Asset Management",
+  "description": "Centralized physical asset inventory, employee asset allocation, lifecycle tracking, maintenance, offboarding clearance, and compliance reporting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

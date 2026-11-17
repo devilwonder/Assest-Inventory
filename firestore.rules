@@ -1,0 +1,369 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Helpers ---
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() && request.auth.token.email == 'pandeypratik4@gmail.com';
+    }
+
+    function hasUserDoc() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userRole() {
+      return hasUserDoc()
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : 'Employee';
+    }
+
+    function isSuperAdmin() {
+      return isBootstrappedAdmin() || (isSignedIn() && hasUserDoc() && userRole() == 'Super Admin');
+    }
+
+    function isITAdmin() {
+      return isSuperAdmin() || (isSignedIn() && hasUserDoc() && userRole() == 'IT Admin');
+    }
+
+    function isHRAdmin() {
+      return isSuperAdmin() || (isSignedIn() && hasUserDoc() && userRole() == 'HR Admin');
+    }
+
+    function isManager() {
+      return isSuperAdmin() || (isSignedIn() && hasUserDoc() && userRole() == 'Department Manager');
+    }
+
+    function isStaffViewer() {
+      return isSuperAdmin() || isITAdmin() || isHRAdmin() || isManager();
+    }
+
+    // --- Entity Validation Blueprints ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'photoUrl', 'role', 'employeeId', 'department', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() <= 200
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.role in ['Super Admin', 'IT Admin', 'HR Admin', 'Department Manager', 'Employee']
+        && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 500))
+        && (!('employeeId' in data) || (data.employeeId is string && data.employeeId.size() <= 128))
+        && (!('department' in data) || (data.department is string && data.department.size() <= 100))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 40))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 40));
+    }
+
+    function isValidEmployee(data) {
+      return data.keys().hasAll(['id', 'employeeCode', 'fullName', 'email', 'department', 'designation', 'joiningDate', 'employmentStatus', 'location'])
+        && data.keys().hasOnly(['id', 'employeeCode', 'fullName', 'photoUrl', 'email', 'phone', 'department', 'designation', 'reportingManager', 'joiningDate', 'employmentStatus', 'location', 'clearanceStatus', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.employeeCode is string && data.employeeCode.size() >= 2 && data.employeeCode.size() <= 40
+        && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120
+        && data.email is string && data.email.size() <= 200
+        && data.department is string && data.department.size() >= 1 && data.department.size() <= 100
+        && data.designation is string && data.designation.size() >= 1 && data.designation.size() <= 120
+        && data.joiningDate is string && data.joiningDate.size() <= 30
+        && data.employmentStatus in ['Active', 'On Leave', 'Resigned', 'Terminated']
+        && data.location is string && data.location.size() >= 1 && data.location.size() <= 120
+        && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 500))
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 40))
+        && (!('reportingManager' in data) || (data.reportingManager is string && data.reportingManager.size() <= 120))
+        && (!('clearanceStatus' in data) || data.clearanceStatus in ['Not Applicable', 'Pending', 'Complete'])
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 40))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 40));
+    }
+
+    function isValidAsset(data) {
+      return data.keys().hasAll(['id', 'assetCode', 'name', 'category', 'brand', 'model', 'serialNumber', 'purchaseDate', 'purchaseCost', 'location', 'condition', 'status'])
+        && data.keys().hasOnly(['id', 'assetCode', 'name', 'category', 'brand', 'model', 'serialNumber', 'imei', 'purchaseDate', 'purchaseCost', 'vendorName', 'warrantyStartDate', 'warrantyExpiryDate', 'invoiceNumber', 'location', 'condition', 'status', 'assignedEmployeeId', 'assignedEmployeeName', 'notes', 'imageUrl', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.assetCode is string && data.assetCode.size() >= 3 && data.assetCode.size() <= 40
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && data.category in ['Laptop', 'Desktop', 'Monitor', 'Keyboard', 'Mouse', 'Mobile Phone', 'Tablet', 'Headphones', 'Charger / Adapter', 'Networking Equipment', 'Printer', 'Office Furniture', 'Other Equipment']
+        && data.brand is string && data.brand.size() >= 1 && data.brand.size() <= 80
+        && data.model is string && data.model.size() >= 1 && data.model.size() <= 100
+        && data.serialNumber is string && data.serialNumber.size() >= 2 && data.serialNumber.size() <= 100
+        && data.purchaseDate is string && data.purchaseDate.size() <= 30
+        && data.purchaseCost is number && data.purchaseCost >= 0
+        && data.location is string && data.location.size() >= 1 && data.location.size() <= 120
+        && data.condition in ['New', 'Good', 'Fair', 'Poor', 'Damaged']
+        && data.status in ['Purchased', 'Available', 'Assigned', 'Under Maintenance', 'Damaged', 'Lost', 'Retired', 'Disposed']
+        && (!('imei' in data) || (data.imei is string && data.imei.size() <= 40))
+        && (!('vendorName' in data) || (data.vendorName is string && data.vendorName.size() <= 120))
+        && (!('warrantyStartDate' in data) || (data.warrantyStartDate is string && data.warrantyStartDate.size() <= 30))
+        && (!('warrantyExpiryDate' in data) || (data.warrantyExpiryDate is string && data.warrantyExpiryDate.size() <= 30))
+        && (!('invoiceNumber' in data) || (data.invoiceNumber is string && data.invoiceNumber.size() <= 80))
+        && (!('assignedEmployeeId' in data) || (data.assignedEmployeeId is string && data.assignedEmployeeId.size() <= 128))
+        && (!('assignedEmployeeName' in data) || (data.assignedEmployeeName is string && data.assignedEmployeeName.size() <= 120))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 40))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 40));
+    }
+
+    function isValidAssetAssignment(data) {
+      return data.keys().hasAll(['id', 'assetId', 'assetCode', 'assetName', 'employeeId', 'employeeName', 'issueDate', 'conditionAtIssue', 'status', 'receiptNumber', 'issuedByUid'])
+        && data.keys().hasOnly(['id', 'assetId', 'assetCode', 'assetName', 'employeeId', 'employeeName', 'employeeEmail', 'department', 'issueDate', 'expectedReturnDate', 'returnDate', 'conditionAtIssue', 'accessoriesIncluded', 'remarks', 'acknowledgedByEmployee', 'acknowledgedAt', 'receiptNumber', 'status', 'issuedByUid', 'issuedByName', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.assetId)
+        && isValidId(data.employeeId)
+        && data.assetCode is string && data.assetCode.size() <= 40
+        && data.assetName is string && data.assetName.size() <= 160
+        && data.employeeName is string && data.employeeName.size() <= 120
+        && data.issueDate is string && data.issueDate.size() <= 30
+        && data.conditionAtIssue in ['New', 'Good', 'Fair', 'Poor', 'Damaged']
+        && data.status in ['Active', 'Returned']
+        && data.receiptNumber is string && data.receiptNumber.size() <= 60
+        && isValidId(data.issuedByUid)
+        && (!('employeeEmail' in data) || (data.employeeEmail is string && data.employeeEmail.size() <= 200))
+        && (!('department' in data) || (data.department is string && data.department.size() <= 100))
+        && (!('expectedReturnDate' in data) || (data.expectedReturnDate is string && data.expectedReturnDate.size() <= 30))
+        && (!('returnDate' in data) || (data.returnDate is string && data.returnDate.size() <= 30))
+        && (!('accessoriesIncluded' in data) || (data.accessoriesIncluded is string && data.accessoriesIncluded.size() <= 500))
+        && (!('remarks' in data) || (data.remarks is string && data.remarks.size() <= 1000))
+        && (!('acknowledgedByEmployee' in data) || data.acknowledgedByEmployee is bool)
+        && (!('acknowledgedAt' in data) || (data.acknowledgedAt is string && data.acknowledgedAt.size() <= 40))
+        && (!('issuedByName' in data) || (data.issuedByName is string && data.issuedByName.size() <= 120))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 40))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 40));
+    }
+
+    function isValidAssetReturn(data) {
+      return data.keys().hasAll(['id', 'assignmentId', 'assetId', 'employeeId', 'returnDate', 'conditionAtReturn', 'nextAssetStatus', 'processedByUid'])
+        && data.keys().hasOnly(['id', 'assignmentId', 'assetId', 'assetCode', 'assetName', 'employeeId', 'employeeName', 'returnDate', 'conditionAtReturn', 'damageDetails', 'missingAccessories', 'returnPhotoUrl', 'remarks', 'nextAssetStatus', 'processedByUid', 'processedByName', 'createdAt'])
+        && isValidId(data.id)
+        && isValidId(data.assignmentId)
+        && isValidId(data.assetId)
+        && isValidId(data.employeeId)
+        && data.returnDate is string && data.returnDate.size() <= 30
+        && data.conditionAtReturn in ['New', 'Good', 'Fair', 'Poor', 'Damaged']
+        && data.nextAssetStatus in ['Available', 'Under Maintenance', 'Damaged', 'Retired']
+        && isValidId(data.processedByUid)
+        && (!('assetCode' in data) || (data.assetCode is string && data.assetCode.size() <= 40))
+        && (!('assetName' in data) || (data.assetName is string && data.assetName.size() <= 160))
+        && (!('employeeName' in data) || (data.employeeName is string && data.employeeName.size() <= 120))
+        && (!('damageDetails' in data) || (data.damageDetails is string && data.damageDetails.size() <= 1000))
+        && (!('missingAccessories' in data) || (data.missingAccessories is string && data.missingAccessories.size() <= 500))
+        && (!('returnPhotoUrl' in data) || (data.returnPhotoUrl is string && data.returnPhotoUrl.size() <= 500))
+        && (!('remarks' in data) || (data.remarks is string && data.remarks.size() <= 1000))
+        && (!('processedByName' in data) || (data.processedByName is string && data.processedByName.size() <= 120))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 40));
+    }
+
+    function isValidAssetRequest(data) {
+      return data.keys().hasAll(['id', 'requesterUid', 'requesterEmployeeId', 'requesterName', 'department', 'category', 'justification', 'urgency', 'status'])
+        && data.keys().hasOnly(['id', 'requesterUid', 'requesterEmployeeId', 'requesterName', 'department', 'category', 'justification', 'urgency', 'status', 'managerApprovedBy', 'managerApprovedAt', 'itApprovedBy', 'itApprovedAt', 'rejectionReason', 'assignedAssetId', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.requesterUid)
+        && isValidId(data.requesterEmployeeId)
+        && data.requesterName is string && data.requesterName.size() >= 1 && data.requesterName.size() <= 120
+        && data.department is string && data.department.size() >= 1 && data.department.size() <= 100
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 80
+        && data.justification is string && data.justification.size() >= 1 && data.justification.size() <= 1000
+        && data.urgency in ['Low', 'Normal', 'High', 'Urgent']
+        && data.status in ['Requested', 'Manager Approved', 'IT Approved', 'Assigned', 'Rejected']
+        && (!('managerApprovedBy' in data) || (data.managerApprovedBy is string && data.managerApprovedBy.size() <= 120))
+        && (!('managerApprovedAt' in data) || (data.managerApprovedAt is string && data.managerApprovedAt.size() <= 40))
+        && (!('itApprovedBy' in data) || (data.itApprovedBy is string && data.itApprovedBy.size() <= 120))
+        && (!('itApprovedAt' in data) || (data.itApprovedAt is string && data.itApprovedAt.size() <= 40))
+        && (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 500))
+        && (!('assignedAssetId' in data) || (data.assignedAssetId is string && data.assignedAssetId.size() <= 128))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 40))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 40));
+    }
+
+    function isValidMaintenanceRecord(data) {
+      return data.keys().hasAll(['id', 'assetId', 'issueDescription', 'reportedDate', 'repairStatus'])
+        && data.keys().hasOnly(['id', 'assetId', 'assetCode', 'assetName', 'issueDescription', 'reportedDate', 'assignedTechnician', 'repairVendor', 'repairCost', 'repairStatus', 'resolutionDate', 'notes', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.assetId)
+        && data.issueDescription is string && data.issueDescription.size() >= 1 && data.issueDescription.size() <= 1000
+        && data.reportedDate is string && data.reportedDate.size() <= 30
+        && data.repairStatus in ['Pending', 'In Progress', 'Completed', 'Unrepairable']
+        && (!('assetCode' in data) || (data.assetCode is string && data.assetCode.size() <= 40))
+        && (!('assetName' in data) || (data.assetName is string && data.assetName.size() <= 160))
+        && (!('assignedTechnician' in data) || (data.assignedTechnician is string && data.assignedTechnician.size() <= 120))
+        && (!('repairVendor' in data) || (data.repairVendor is string && data.repairVendor.size() <= 120))
+        && (!('repairCost' in data) || (data.repairCost is number && data.repairCost >= 0))
+        && (!('resolutionDate' in data) || (data.resolutionDate is string && data.resolutionDate.size() <= 30))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 40))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 40));
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['id', 'actorUid', 'actorName', 'action', 'entityType', 'entityId', 'summary', 'timestamp'])
+        && data.keys().hasOnly(['id', 'actorUid', 'actorName', 'actorRole', 'action', 'entityType', 'entityId', 'summary', 'timestamp'])
+        && isValidId(data.id)
+        && isValidId(data.actorUid)
+        && data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 120
+        && data.action is string && data.action.size() >= 1 && data.action.size() <= 100
+        && data.entityType is string && data.entityType.size() >= 1 && data.entityType.size() <= 60
+        && data.entityId is string && data.entityId.size() >= 1 && data.entityId.size() <= 128
+        && data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 500
+        && data.timestamp is string && data.timestamp.size() <= 40
+        && (!('actorRole' in data) || (data.actorRole is string && data.actorRole.size() <= 60));
+    }
+
+    function isValidDepartment(data) {
+      return data.keys().hasAll(['id', 'name'])
+        && data.keys().hasOnly(['id', 'name', 'headName', 'costCenter', 'createdAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && (!('headName' in data) || (data.headName is string && data.headName.size() <= 120))
+        && (!('costCenter' in data) || (data.costCenter is string && data.costCenter.size() <= 40))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 40));
+    }
+
+    function isValidLocation(data) {
+      return data.keys().hasAll(['id', 'name'])
+        && data.keys().hasOnly(['id', 'name', 'city', 'country', 'createdAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && (!('city' in data) || (data.city is string && data.city.size() <= 80))
+        && (!('country' in data) || (data.country is string && data.country.size() <= 80))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 40));
+    }
+
+    // --- Collection Rules ---
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isSuperAdmin());
+      allow list: if isSuperAdmin();
+      allow create: if isSignedIn() && isValidId(userId) && isValidUser(incoming())
+        && incoming().uid == userId
+        && (
+          (request.auth.uid == userId && (incoming().role == 'Employee' || isBootstrappedAdmin()))
+          || isSuperAdmin()
+        );
+      allow update: if isSignedIn() && isValidId(userId) && isValidUser(incoming())
+        && incoming().uid == existing().uid
+        && (
+          isSuperAdmin()
+          || (request.auth.uid == userId && incoming().role == existing().role && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'updatedAt']))
+        );
+      allow delete: if isSuperAdmin() && isValidId(userId);
+    }
+
+    match /employees/{employeeId} {
+      allow get: if isSignedIn() && isValidId(employeeId) && (isStaffViewer() || existing().email == request.auth.token.email);
+      allow list: if isSignedIn() && (isStaffViewer() || resource.data.email == request.auth.token.email);
+      allow create: if isSignedIn() && isValidId(employeeId) && isValidEmployee(incoming()) && (isHRAdmin() || isITAdmin());
+      allow update: if isSignedIn() && isValidId(employeeId) && isValidEmployee(incoming())
+        && incoming().id == existing().id
+        && (isHRAdmin() || isITAdmin());
+      allow delete: if isSuperAdmin() && isValidId(employeeId);
+    }
+
+    match /assets/{assetId} {
+      allow get: if isSignedIn() && isValidId(assetId);
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(assetId) && isValidAsset(incoming()) && isITAdmin();
+      allow update: if isSignedIn() && isValidId(assetId) && isValidAsset(incoming())
+        && incoming().id == existing().id
+        && isITAdmin();
+      allow delete: if isSuperAdmin() && isValidId(assetId);
+    }
+
+    match /assetAssignments/{assignmentId} {
+      allow get: if isSignedIn() && isValidId(assignmentId) && (isStaffViewer() || existing().employeeEmail == request.auth.token.email);
+      allow list: if isSignedIn() && (isStaffViewer() || resource.data.employeeEmail == request.auth.token.email);
+      allow create: if isSignedIn() && isValidId(assignmentId) && isValidAssetAssignment(incoming())
+        && isITAdmin()
+        && incoming().issuedByUid == request.auth.uid
+        && exists(/databases/$(database)/documents/assets/$(incoming().assetId))
+        && exists(/databases/$(database)/documents/employees/$(incoming().employeeId));
+      allow update: if isSignedIn() && isValidId(assignmentId) && isValidAssetAssignment(incoming())
+        && incoming().id == existing().id
+        && incoming().assetId == existing().assetId
+        && incoming().employeeId == existing().employeeId
+        && (
+          isITAdmin()
+          || (existing().status == 'Active' && existing().employeeEmail == request.auth.token.email && incoming().diff(existing()).affectedKeys().hasOnly(['acknowledgedByEmployee', 'acknowledgedAt', 'updatedAt']))
+        );
+      allow delete: if false; // Never permanently delete historical assignment records
+    }
+
+    match /assetReturns/{returnId} {
+      allow get: if isSignedIn() && isValidId(returnId) && isStaffViewer();
+      allow list: if isSignedIn() && isStaffViewer();
+      allow create: if isSignedIn() && isValidId(returnId) && isValidAssetReturn(incoming())
+        && isITAdmin()
+        && incoming().processedByUid == request.auth.uid
+        && exists(/databases/$(database)/documents/assetAssignments/$(incoming().assignmentId));
+      allow update, delete: if false; // Immutable return history
+    }
+
+    match /assetRequests/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) && (isStaffViewer() || existing().requesterUid == request.auth.uid);
+      allow list: if isSignedIn() && (isStaffViewer() || resource.data.requesterUid == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(requestId) && isValidAssetRequest(incoming())
+        && incoming().requesterUid == request.auth.uid
+        && incoming().status == 'Requested';
+      allow update: if isSignedIn() && isValidId(requestId) && isValidAssetRequest(incoming())
+        && incoming().id == existing().id
+        && incoming().requesterUid == existing().requesterUid
+        && existing().status != 'Assigned'
+        && existing().status != 'Rejected'
+        && (
+          isSuperAdmin()
+          || (isManager() && existing().status == 'Requested' && incoming().status in ['Manager Approved', 'Rejected'] && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'managerApprovedBy', 'managerApprovedAt', 'rejectionReason', 'updatedAt']))
+          || (isITAdmin() && existing().status in ['Manager Approved', 'IT Approved'] && incoming().status in ['IT Approved', 'Assigned', 'Rejected'] && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'itApprovedBy', 'itApprovedAt', 'rejectionReason', 'assignedAssetId', 'updatedAt']))
+        );
+      allow delete: if isSuperAdmin() && isValidId(requestId);
+    }
+
+    match /maintenanceRecords/{recordId} {
+      allow get: if isSignedIn() && isValidId(recordId) && isStaffViewer();
+      allow list: if isSignedIn() && isStaffViewer();
+      allow create: if isSignedIn() && isValidId(recordId) && isValidMaintenanceRecord(incoming())
+        && exists(/databases/$(database)/documents/assets/$(incoming().assetId))
+        && (isITAdmin() || incoming().repairStatus == 'Pending');
+      allow update: if isSignedIn() && isValidId(recordId) && isValidMaintenanceRecord(incoming())
+        && incoming().id == existing().id
+        && incoming().assetId == existing().assetId
+        && isITAdmin();
+      allow delete: if isSuperAdmin() && isValidId(recordId);
+    }
+
+    match /auditLogs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && (isSuperAdmin() || isITAdmin() || isHRAdmin());
+      allow list: if isSignedIn() && (isSuperAdmin() || isITAdmin() || isHRAdmin());
+      allow create: if isSignedIn() && isValidId(logId) && isValidAuditLog(incoming())
+        && incoming().actorUid == request.auth.uid;
+      allow update, delete: if false; // Append-only immutable audit trail
+    }
+
+    match /departments/{departmentId} {
+      allow get: if isSignedIn() && isValidId(departmentId);
+      allow list: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(departmentId) && isValidDepartment(incoming()) && isSuperAdmin();
+      allow delete: if isSuperAdmin() && isValidId(departmentId);
+    }
+
+    match /locations/{locationId} {
+      allow get: if isSignedIn() && isValidId(locationId);
+      allow list: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(locationId) && isValidLocation(incoming()) && isSuperAdmin();
+      allow delete: if isSuperAdmin() && isValidId(locationId);
+    }
+  }
+}
